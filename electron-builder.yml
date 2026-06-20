@@ -1,0 +1,29 @@
+appId: com.contract-manager.app
+productName: 合同管理系统
+directories:
+  output: release
+  buildResources: build
+files:
+  - electron/**/*
+  - server/**/*
+  - dist/**/*
+  - node_modules/**/*
+  - package.json
+  - "!**/*.ts"
+  - "!**/*.tsx"
+  - "!src/**/*"
+  - "!electron/database.js"
+  - "!electron/preload.js"
+  - "!scripts/**/*"
+  - "!deploy/**/*"
+  - "!vite.config.*"
+  - "!tsconfig*.json"
+  - "!electron-vite.config.*"
+  - "!.npmrc"
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: 合同管理系统
