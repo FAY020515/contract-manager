@@ -55,6 +55,12 @@ async function startServer() {
   await initDatabase();
   log('数据库初始化完成');
 
+  // 显示数据库存储位置，方便排查数据丢失问题
+  try {
+    const dbModule = require(databasePath);
+    log(`数据库存储路径: ${dbModule.getDbPath ? dbModule.getDbPath() : '未知'}`);
+  } catch (_) {}
+
   // 注册 API 路由
   setupRoutes(serverApp);
   log('API 路由已注册');

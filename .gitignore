@@ -3,6 +3,8 @@ dist/
 out/
 release/
 dist-electron/
+data/
 *.db
 .DS_Store
 Thumbs.db
+对话记录_*.md

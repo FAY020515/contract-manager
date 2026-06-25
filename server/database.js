@@ -3,13 +3,37 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 
-// 数据库存储在用户数据目录（Electron）或项目 data/ 目录（独立运行）
+// 数据库存储路径：
+// - 打包 Electron: exe 同级 data/ 目录（避免 AppData 被企业策略清理）
+// - 开发模式 / 纯 Web: 项目根目录 data/
 function getDataDir() {
+  try {
+    const { app } = require('electron');
+    if (app.isPackaged) {
+      const exeDir = path.join(path.dirname(process.execPath), 'data');
+      // 检查 exe 同级目录是否可写（装在 Program Files 下可能不行）
+      try {
+        if (!fs.existsSync(exeDir)) fs.mkdirSync(exeDir, { recursive: true });
+        fs.accessSync(exeDir, fs.constants.W_OK);
+        return exeDir;
+      } catch (_) {
+        // 不可写，回退到 AppData
+        return path.join(app.getPath('userData'), 'data');
+      }
+    }
+    return path.join(__dirname, '../data');
+  } catch (_) {
+    return path.join(__dirname, '../data');
+  }
+}
+
+// 旧版数据目录（AppData），用于自动迁移
+function getLegacyDataDir() {
   try {
     const { app } = require('electron');
     return path.join(app.getPath('userData'), 'data');
   } catch (_) {
-    return path.join(__dirname, '../data');
+    return null;
   }
 }
 
@@ -17,6 +41,21 @@ const DB_DIR = getDataDir();
 const DB_PATH = path.join(DB_DIR, 'contracts.db');
 
 let db = null;
+
+// 递归复制目录
+function copyDirSync(src, dest) {
+  if (!fs.existsSync(src)) return;
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDirSync(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
 
 async function initDatabase() {
   // 显式指定 WASM 文件路径，确保 asar 环境中能正确加载
@@ -27,6 +66,29 @@ async function initDatabase() {
 
   if (!fs.existsSync(DB_DIR)) {
     fs.mkdirSync(DB_DIR, { recursive: true });
+  }
+
+  // 自动迁移：旧版数据在 AppData，新版存在 exe 旁边
+  if (!fs.existsSync(DB_PATH)) {
+    try {
+      const legacyDir = getLegacyDataDir();
+      const legacyDB = legacyDir ? path.join(legacyDir, 'contracts.db') : null;
+      if (legacyDB && fs.existsSync(legacyDB)) {
+        fs.copyFileSync(legacyDB, DB_PATH);
+        // 同时迁移上传目录
+        const legacyUploads = path.join(legacyDir, 'uploads');
+        if (fs.existsSync(legacyUploads)) {
+          const newUploads = path.join(DB_DIR, 'uploads');
+          if (!fs.existsSync(newUploads)) {
+            fs.mkdirSync(newUploads, { recursive: true });
+          }
+          copyDirSync(legacyUploads, newUploads);
+        }
+        console.log('  已从旧目录迁移数据:', legacyDB);
+      }
+    } catch (e) {
+      console.log('  旧数据迁移失败（不影响使用）:', e.message);
+    }
   }
 
   if (fs.existsSync(DB_PATH)) {
