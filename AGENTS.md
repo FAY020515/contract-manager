@@ -39,9 +39,9 @@ npm run pack
 
 ### 双模式运行
 
-项目支持两种运行模式，共享同一套后端代码：
+项目支持两种运行模式，共享同一套后端代码（`server/`）：
 
-1. **Electron 桌面模式** (`npm run dev`): 主进程调用 `electron/database.js` 直接操作 sql.js，通过 IPC 与渲染进程通信
+1. **Electron 桌面模式** (`npm run dev` 或打包后): `electron/main.js` 启动时内嵌 Express 服务，加载 `server/database.js` 和 `server/routes.js`，自动打开浏览器访问本地服务
 2. **Web 服务模式** (`npm run dev:web` 或 `npm run server`): Express 服务器在 `server/index.js` 启动，前端通过 REST API (`/api/*`) 访问
 
 ### 目录结构
@@ -66,10 +66,12 @@ npm run pack
 ### 数据库
 
 - 使用 sql.js (WebAssembly) 实现嵌入式 SQLite
-- 数据文件存储位置：
-  - Electron: `app.getPath('userData')/data/contracts.db`
-  - Web: `项目目录/data/contracts.db`
-- 附件上传目录: `data/uploads/`
+- 数据文件存储位置（按优先级）：
+  - 打包 Electron（exe 目录可写）：`exe 同级目录/data/contracts.db`
+  - 打包 Electron（exe 目录不可写，如 Program Files）：`app.getPath('userData')/data/contracts.db`
+  - 开发模式 / Web 模式：`项目目录/data/contracts.db`
+- 附件上传目录: `data/uploads/`（与数据库同级）
+- 首次启动自动从旧版 AppData 迁移数据（含附件）
 - 主要表: `contracts`, `reminders`, `contract_logs`, `attachments`, `users`, `settings`
 
 ### 认证机制

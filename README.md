@@ -54,6 +54,20 @@ npm run build
 npm run pack
 ```
 
+## 数据存储
+
+数据库和附件存储位置：
+
+| 运行模式 | 存储位置 |
+|---------|---------|
+| 打包版（exe 目录可写） | `exe 同级目录/data/` |
+| 打包版（装在 Program Files） | `C:\Users\<用户名>\AppData\Roaming\合同管理系统\data\` |
+| 开发模式 | `项目目录/data/` |
+
+> **安装建议**：安装到非 Program Files 目录（如 `D:\合同管理系统`），确保数据文件可写且不受企业域策略清理。
+
+首次启动时，系统会自动检测旧版 AppData 中的数据并迁移到新位置。
+
 ## 默认账户
 
 | 用户名 | 密码 | 角色 |
@@ -70,6 +84,8 @@ npm run pack
 │   ├── database.js      # 数据库操作
 │   └── routes.js        # API 路由
 ├── electron/            # Electron 桌面端
+│   ├── main.js          # 主进程（内嵌 Express 服务）
+│   └── ...
 ├── src/                 # React 前端
 │   ├── pages/           # 页面组件
 │   ├── services/        # API 服务
