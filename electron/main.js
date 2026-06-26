@@ -1,9 +1,10 @@
-const { app, BrowserWindow, shell, dialog, clipboard, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, dialog, clipboard, ipcMain, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
 const isDev = process.env.NODE_ENV === 'development';
 let mainWindow = null;
+let tray = null;
 let serverPort = 3000;
 let serverUrl = '';
 
@@ -117,6 +118,73 @@ ipcMain.handle('clipboard:write', (_, text) => {
   return true;
 });
 
+// 生成一个简单的托盘图标（蓝色方块）
+function createTrayIcon() {
+  const size = 16;
+  const canvas = Buffer.alloc(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4;
+      canvas[i] = 22; canvas[i + 1] = 119; canvas[i + 2] = 255; canvas[i + 3] = 255;
+    }
+  }
+  return nativeImage.createFromBuffer(canvas, { width: size, height: size });
+}
+
+function createTray(localIP) {
+  const icon = createTrayIcon();
+  tray = new Tray(icon);
+  tray.setToolTip('合同管理系统 - 运行中');
+
+  const updateMenu = () => {
+    const contextMenu = Menu.buildFromTemplate([
+      { label: `服务运行中 (端口 ${serverPort})`, enabled: false },
+      { type: 'separator' },
+      {
+        label: '打开管理界面',
+        click: () => {
+          if (mainWindow) {
+            mainWindow.show();
+          } else {
+            createStatusWindow(localIP);
+          }
+        },
+      },
+      {
+        label: '在浏览器中打开',
+        click: () => shell.openExternal(`http://localhost:${serverPort}`),
+      },
+      {
+        label: '复制局域网地址',
+        click: () => {
+          clipboard.writeText(`http://${localIP}:${serverPort}`);
+          tray.displayBalloon({ title: '已复制', content: `http://${localIP}:${serverPort}` });
+        },
+      },
+      { type: 'separator' },
+      {
+        label: '退出系统',
+        click: () => {
+          try { saveNow(); } catch (_) {}
+          app.quit();
+        },
+      },
+    ]);
+    tray.setContextMenu(contextMenu);
+  };
+
+  updateMenu();
+
+  // 单击托盘图标打开窗口
+  tray.on('click', () => {
+    if (mainWindow) {
+      mainWindow.show();
+    } else {
+      createStatusWindow(localIP);
+    }
+  });
+}
+
 function createStatusWindow(localIP) {
   mainWindow = new BrowserWindow({
     width: 500,
@@ -166,7 +234,7 @@ function createStatusWindow(localIP) {
   </div>
   <div class="hint">
     把局域网地址发给同事，在浏览器中打开即可使用。<br>
-    关闭此窗口将停止服务。
+    关闭窗口后程序会在后台继续运行，右下角托盘图标可重新打开。
   </div>
   <button class="btn" id="openBtn">在浏览器中打开</button>
   <script>
@@ -175,7 +243,6 @@ function createStatusWindow(localIP) {
         await window.electronAPI.writeClipboard(url);
         alert('已复制: ' + url);
       } catch (e) {
-        // 降级方案：选中文字让用户手动复制
         const range = document.createRange();
         range.selectNodeContents(event.currentTarget.querySelector('.url'));
         const sel = window.getSelection();
@@ -198,9 +265,16 @@ function createStatusWindow(localIP) {
     return { action: 'deny' };
   });
 
+  // 关闭窗口时隐藏而非退出，服务继续在后台运行
+  mainWindow.on('close', (e) => {
+    if (!app.isQuitting) {
+      e.preventDefault();
+      mainWindow.hide();
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
-    app.quit();
   });
 }
 
@@ -240,6 +314,7 @@ app.whenReady().then(async () => {
 
   try {
     const { localIP } = await startServer();
+    createTray(localIP);
     createStatusWindow(localIP);
 
     // 自动打开浏览器
@@ -249,7 +324,6 @@ app.whenReady().then(async () => {
     log(`启动失败: ${err.message}`);
     log(`堆栈: ${err.stack}`);
 
-    // 显示错误弹窗，让用户能看到问题
     dialog.showErrorBox(
       '合同管理系统 - 启动失败',
       `错误信息: ${err.message}\n\n` +
@@ -260,12 +334,14 @@ app.whenReady().then(async () => {
   }
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+// 窗口全部关闭时不退出程序，服务继续在后台运行
+app.on('window-all-closed', (e) => {
+  e.preventDefault();
 });
 
 // 退出前保存数据库（兜底，防止中间件未触发的写操作丢失）
 app.on('before-quit', () => {
+  app.isQuitting = true;
   try {
     const dbModule = require(path.join(__dirname, '../server/database'));
     if (dbModule.saveNow) dbModule.saveNow();
