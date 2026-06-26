@@ -4,22 +4,13 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 // 数据库存储路径：
-// - 打包 Electron: exe 同级 data/ 目录（避免 AppData 被企业策略清理）
+// - 打包 Electron: AppData/userData（重装不丢数据）
 // - 开发模式 / 纯 Web: 项目根目录 data/
 function getDataDir() {
   try {
     const { app } = require('electron');
     if (app.isPackaged) {
-      const exeDir = path.join(path.dirname(process.execPath), 'data');
-      // 检查 exe 同级目录是否可写（装在 Program Files 下可能不行）
-      try {
-        if (!fs.existsSync(exeDir)) fs.mkdirSync(exeDir, { recursive: true });
-        fs.accessSync(exeDir, fs.constants.W_OK);
-        return exeDir;
-      } catch (_) {
-        // 不可写，回退到 AppData
-        return path.join(app.getPath('userData'), 'data');
-      }
+      return path.join(app.getPath('userData'), 'data');
     }
     return path.join(__dirname, '../data');
   } catch (_) {
@@ -68,7 +59,7 @@ async function initDatabase() {
     fs.mkdirSync(DB_DIR, { recursive: true });
   }
 
-  // 自动迁移：旧版数据在 AppData，新版存在 exe 旁边
+  // 自动迁移：旧版数据在 exe 旁边，新版存在 AppData
   if (!fs.existsSync(DB_PATH)) {
     try {
       const legacyDir = getLegacyDataDir();
