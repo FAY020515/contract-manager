@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, dialog } = require('electron');
+const { app, BrowserWindow, shell, dialog, clipboard, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -111,6 +111,12 @@ async function startServer() {
   });
 }
 
+// IPC: 渲染进程请求复制到剪贴板
+ipcMain.handle('clipboard:write', (_, text) => {
+  clipboard.writeText(text);
+  return true;
+});
+
 function createStatusWindow(localIP) {
   mainWindow = new BrowserWindow({
     width: 500,
@@ -121,6 +127,7 @@ function createStatusWindow(localIP) {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'preload-status.js'),
     },
   });
 
@@ -163,10 +170,18 @@ function createStatusWindow(localIP) {
   </div>
   <button class="btn" id="openBtn">在浏览器中打开</button>
   <script>
-    function copyUrl(url) {
-      navigator.clipboard.writeText(url).then(function() {
+    async function copyUrl(url) {
+      try {
+        await window.electronAPI.writeClipboard(url);
         alert('已复制: ' + url);
-      });
+      } catch (e) {
+        // 降级方案：选中文字让用户手动复制
+        const range = document.createRange();
+        range.selectNodeContents(event.currentTarget.querySelector('.url'));
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
     }
     document.getElementById('openBtn').addEventListener('click', function() {
       window.open('http://localhost:${serverPort}');
