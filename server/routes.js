@@ -13,7 +13,9 @@ function getUploadStorage() {
   return multer.diskStorage({
     destination: uploadsDir,
     filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname);
+      // multer 默认用 latin1 解码文件名，中文需要转回 UTF-8
+      const realName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+      const ext = path.extname(realName);
       const name = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`;
       cb(null, name);
     },
@@ -263,15 +265,17 @@ function setupRoutes(app) {
 
       const results = [];
       for (const file of (req.files || [])) {
+        // multer 用 latin1 解码了文件名，需要转回 UTF-8
+        const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
         const id = db.createAttachment(
           contractId,
           file.filename,
-          file.originalname,
+          originalName,
           file.mimetype,
           file.size,
           req.body.uploader || null
         );
-        results.push({ id, filename: file.filename, original_name: file.originalname });
+        results.push({ id, filename: file.filename, original_name: originalName });
       }
 
       // 记录操作日志

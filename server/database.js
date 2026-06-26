@@ -59,7 +59,7 @@ async function initDatabase() {
     fs.mkdirSync(DB_DIR, { recursive: true });
   }
 
-  // 自动迁移：旧版数据在 exe 旁边，新版存在 AppData
+  // 自动迁移：旧版数据在 AppData，新版存在 exe 旁边
   if (!fs.existsSync(DB_PATH)) {
     try {
       const legacyDir = getLegacyDataDir();
@@ -496,7 +496,7 @@ function getUploadsDir() {
 // ========== Attachments ==========
 
 function getAttachmentsByContract(contractId) {
-  return queryAll('SELECT * FROM attachments WHERE contract_id = ? ORDER BY created_at DESC', [contractId]);
+  return queryAll('SELECT *, size AS file_size FROM attachments WHERE contract_id = ? ORDER BY created_at DESC', [contractId]);
 }
 
 function getAttachmentById(id) {
