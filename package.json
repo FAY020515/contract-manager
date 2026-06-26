@@ -1,7 +1,7 @@
 {
   "name": "contract-manager",
   "version": "1.0.1",
-  "description": "\u5408\u540c\u7ba1\u7406\u7cfb\u7edf",
+  "description": "合同管理系统",
   "author": "Contract Manager",
   "repository": {
     "type": "git",
@@ -43,5 +43,30 @@
     "vite": "^7.0.0",
     "wait-on": "^7.2.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "build": {
+    "appId": "com.contract-manager.app",
+    "productName": "合同管理系统",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "server/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "include": "installer.nsh",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }
