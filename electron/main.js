@@ -118,17 +118,80 @@ ipcMain.handle('clipboard:write', (_, text) => {
   return true;
 });
 
-// 生成一个简单的托盘图标（蓝色方块）
+// 动态生成 16x16 蓝色 (#1677FF) 托盘图标 - 合法 PNG 格式
 function createTrayIcon() {
   const size = 16;
-  const canvas = Buffer.alloc(size * size * 4);
+
+  // PNG signature
+  const sig = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+  // IHDR: 16x16, 8-bit RGB
+  const ihdrData = Buffer.alloc(13);
+  ihdrData.writeUInt32BE(size, 0);
+  ihdrData.writeUInt32BE(size, 4);
+  ihdrData[8] = 8; ihdrData[9] = 2; ihdrData[10] = 0; ihdrData[11] = 0; ihdrData[12] = 0;
+  const ihdrType = Buffer.from('IHDR');
+  const ihdr = makeChunk(ihdrType, ihdrData);
+
+  // Raw image data: each row = filter(0) + 16 pixels * 3 bytes (RGB)
+  const rowBytes = size * 3 + 1; // 49
+  const rawData = Buffer.alloc(size * rowBytes);
   for (let y = 0; y < size; y++) {
+    rawData[y * rowBytes] = 0; // filter: None
     for (let x = 0; x < size; x++) {
-      const i = (y * size + x) * 4;
-      canvas[i] = 22; canvas[i + 1] = 119; canvas[i + 2] = 255; canvas[i + 3] = 255;
+      const off = y * rowBytes + 1 + x * 3;
+      rawData[off] = 0x16;     // R
+      rawData[off + 1] = 0x77; // G
+      rawData[off + 2] = 0xFF; // B
     }
   }
-  return nativeImage.createFromBuffer(canvas, { width: size, height: size });
+
+  // zlib wrapper with stored (uncompressed) DEFLATE block
+  const zlibHeader = Buffer.from([0x78, 0x01]); // no compression, no dict
+  const deflateLen = rawData.length;
+  const deflateBlock = Buffer.alloc(5 + deflateLen);
+  deflateBlock[0] = 0x01; // final stored block
+  deflateBlock.writeUInt16LE(deflateLen, 1);
+  deflateBlock.writeUInt16LE(~deflateLen & 0xFFFF, 3);
+  rawData.copy(deflateBlock, 5);
+
+  // Adler32 checksum
+  let s1 = 1, s2 = 1;
+  for (let i = 0; i < rawData.length; i++) {
+    s1 = (s1 + rawData[i]) % 65521;
+    s2 = (s2 + s1) % 65521;
+  }
+  const adler = Buffer.alloc(4);
+  adler.writeUInt32BE((s2 << 16) | s1, 0);
+
+  const idatData = Buffer.concat([zlibHeader, deflateBlock, adler]);
+  const idat = makeChunk(Buffer.from('IDAT'), idatData);
+
+  // IEND
+  const iend = makeChunk(Buffer.from('IEND'), Buffer.alloc(0));
+
+  return nativeImage.createFromBuffer(Buffer.concat([sig, ihdr, idat, iend]));
+}
+
+function makeChunk(type, data) {
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length, 0);
+  const crcInput = Buffer.concat([type, data]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(crcInput), 0);
+  return Buffer.concat([len, type, data, crc]);
+}
+
+function crc32(buf) {
+  let crc = 0xFFFFFFFF;
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    table[n] = c;
+  }
+  for (let i = 0; i < buf.length; i++) crc = (crc >>> 8) ^ table[(crc ^ buf[i]) & 0xFF];
+  return (crc ^ 0xFFFFFFFF) >>> 0;
 }
 
 function createTray(localIP) {
