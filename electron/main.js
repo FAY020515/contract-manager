@@ -61,17 +61,17 @@ async function startServer() {
     log(`数据库存储路径: ${dbModule.getDbPath ? dbModule.getDbPath() : '未知'}`);
   } catch (_) {}
 
-  // 注册 API 路由
-  setupRoutes(serverApp);
-  log('API 路由已注册');
-
-  // 每个 API 请求结束后统一保存数据库到磁盘
+  // 每个 API 请求结束后统一保存数据库到磁盘（必须在路由注册之前）
   serverApp.use('/api', (req, res, next) => {
     res.on('finish', () => {
       try { saveNow(); } catch (e) { log('数据库保存失败: ' + e.message); }
     });
     next();
   });
+
+  // 注册 API 路由
+  setupRoutes(serverApp);
+  log('API 路由已注册');
 
   // 托管前端静态文件
   const distPath = path.join(__dirname, '../dist');
@@ -247,4 +247,12 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+// 退出前保存数据库（兜底，防止中间件未触发的写操作丢失）
+app.on('before-quit', () => {
+  try {
+    const dbModule = require(path.join(__dirname, '../server/database'));
+    if (dbModule.saveNow) dbModule.saveNow();
+  } catch (_) {}
 });

@@ -10,16 +10,16 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// API routes
-setupRoutes(app);
-
-// 每个 API 请求结束后统一保存数据库到磁盘
+// 每个 API 请求结束后统一保存数据库到磁盘（必须在路由注册之前）
 app.use('/api', (req, res, next) => {
   res.on('finish', () => {
     try { saveNow(); } catch (e) { console.error('数据库保存失败:', e.message); }
   });
   next();
 });
+
+// API routes
+setupRoutes(app);
 
 // Serve static frontend in production
 const distPath = path.join(__dirname, '../dist');
