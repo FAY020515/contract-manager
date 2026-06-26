@@ -1,7 +1,7 @@
 {
   "name": "contract-manager",
-  "version": "1.0.0",
-  "description": "合同管理系统",
+  "version": "1.0.1",
+  "description": "\u5408\u540c\u7ba1\u7406\u7cfb\u7edf",
   "author": "Contract Manager",
   "repository": {
     "type": "git",
