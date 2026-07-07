@@ -1,0 +1,12 @@
+node_modules/
+dist/
+out/
+release/
+release2/
+deploy/
+dist-electron/
+data/
+*.db
+.DS_Store
+Thumbs.db
+对话记录_*.md
