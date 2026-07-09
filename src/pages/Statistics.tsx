@@ -3,6 +3,7 @@ import { Card, Row, Col, Button, message, Spin, Modal, Table, Tag } from 'antd';
 import { DownloadOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import type { StatItem, Contract } from '../types';
+import * as XLSX from 'xlsx';
 import { STATUS_COLORS } from '../types';
 
 const COLORS = ['#1677ff', '#52c41a', '#faad14', '#f5222d', '#722ed1', '#13c2c2', '#eb2f96', '#fa8c16'];
@@ -59,7 +60,6 @@ const Statistics: React.FC = () => {
 
   const handleExport = async () => {
     try {
-      const XLSX = await import('xlsx');
       const wb = XLSX.utils.book_new();
 
       // Type stats
@@ -214,8 +214,27 @@ const Statistics: React.FC = () => {
     }],
   };
 
-  const resolveType = (name: string) => typeStats.find(s => (s.type || '未知') === name)?.type || '';
-  const resolveDept = (name: string) => deptStats.find(s => (s.department || '未知') === name)?.department || '';
+  const resolveType = (name: string) => {
+    const stat = typeStats.find(s => (s.type || '未知') === name);
+    if (!stat) return '';
+    return stat.type || '未知';
+  };
+  const resolveDept = (name: string) => {
+    const stat = deptStats.find(s => (s.department || '未知') === name);
+    if (!stat) return '';
+    return stat.department || '未知';
+  };
+
+  const parseAmountRange = (rangeName: string): Record<string, number> => {
+    switch (rangeName) {
+      case '1万以下': return { amountMax: 10000 };
+      case '1-10万': return { amountMin: 10000, amountMax: 100000 };
+      case '10-50万': return { amountMin: 100000, amountMax: 500000 };
+      case '50-100万': return { amountMin: 500000, amountMax: 1000000 };
+      case '100万以上': return { amountMin: 1000000 };
+      default: return {};
+    }
+  };
 
   const onTypePieClick = useCallback((params: any) => {
     const type = resolveType(params.name);
@@ -231,6 +250,43 @@ const Statistics: React.FC = () => {
     const dept = resolveDept(params.name);
     handleChartClick('department', dept, `部门：${params.name}`);
   }, [deptStats, handleChartClick]);
+
+  const onAmountPieClick = useCallback(async (params: any) => {
+    const range = parseAmountRange(params.name);
+    setModalTitle(`金额区间：${params.name}`);
+    setModalVisible(true);
+    setModalLoading(true);
+    try {
+      const filters: Record<string, any> = { pageSize: 1000, ...range };
+      const result = await window.api.getContracts(filters);
+      setModalContracts(result.data || []);
+    } catch (e) {
+      console.error(e);
+      message.error('加载合同列表失败');
+    }
+    setModalLoading(false);
+  }, []);
+
+  const onTrendClick = useCallback(async (params: any) => {
+    if (!params.name) return;
+    const month = params.name; // e.g. "2024-03"
+    const startDate = `${month}-01`;
+    const [year, mon] = month.split('-').map(Number);
+    const lastDay = new Date(year, mon, 0).getDate();
+    const endDate = `${month}-${String(lastDay).padStart(2, '0')}`;
+    setModalTitle(`月份：${month}`);
+    setModalVisible(true);
+    setModalLoading(true);
+    try {
+      const filters: Record<string, any> = { startDate, endDate, pageSize: 1000 };
+      const result = await window.api.getContracts(filters);
+      setModalContracts(result.data || []);
+    } catch (e) {
+      console.error(e);
+      message.error('加载合同列表失败');
+    }
+    setModalLoading(false);
+  }, []);
 
   const modalColumns = [
     { title: '合同编号', dataIndex: 'contract_no', key: 'contract_no', width: 120 },
@@ -280,12 +336,14 @@ const Statistics: React.FC = () => {
           </Col>
           <Col xs={24} lg={12}>
             <Card title="金额区间分布" size="small">
-              <ReactECharts option={amountPieOption} style={{ height: 300 }} />
+              <ReactECharts option={amountPieOption} style={{ height: 300 }}
+                onEvents={{ click: onAmountPieClick }} />
             </Card>
           </Col>
           <Col span={24}>
             <Card title="月度趋势（近12个月）" size="small">
-              <ReactECharts option={trendOption} style={{ height: 350 }} />
+              <ReactECharts option={trendOption} style={{ height: 350 }}
+                onEvents={{ click: onTrendClick }} />
             </Card>
           </Col>
         </Row>

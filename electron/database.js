@@ -183,21 +183,23 @@ const dbApi = {
     const params = [];
 
     if (filters?.keyword) {
-      where += ' AND (title LIKE ? OR contract_no LIKE ? OR party_a LIKE ? OR party_b LIKE ?)';
+      where += ' AND (c.title LIKE ? OR c.contract_no LIKE ? OR c.party_a LIKE ? OR c.party_b LIKE ?)';
       const kw = `%${filters.keyword}%`;
       params.push(kw, kw, kw, kw);
     }
-    if (filters?.type) { where += ' AND type = ?'; params.push(filters.type); }
-    if (filters?.status) { where += ' AND status = ?'; params.push(filters.status); }
-    if (filters?.department) { where += ' AND department = ?'; params.push(filters.department); }
-    if (filters?.startDate) { where += ' AND sign_date >= ?'; params.push(filters.startDate); }
-    if (filters?.endDate) { where += ' AND sign_date <= ?'; params.push(filters.endDate); }
+    if (filters?.type) { where += ' AND c.type = ?'; params.push(filters.type); }
+    if (filters?.status) { where += ' AND c.status = ?'; params.push(filters.status); }
+    if (filters?.department) { where += ' AND c.department = ?'; params.push(filters.department); }
+    if (filters?.startDate) { where += ' AND c.sign_date >= ?'; params.push(filters.startDate); }
+    if (filters?.endDate) { where += ' AND c.sign_date <= ?'; params.push(filters.endDate); }
+    if (filters?.amountMin !== undefined && filters?.amountMin !== '') { where += ' AND c.amount >= ?'; params.push(Number(filters.amountMin)); }
+    if (filters?.amountMax !== undefined && filters?.amountMax !== '') { where += ' AND c.amount < ?'; params.push(Number(filters.amountMax)); }
 
     const page = filters?.page || 1;
     const pageSize = filters?.pageSize || 20;
     const offset = (page - 1) * pageSize;
 
-    const total = queryOne(`SELECT COUNT(*) as count FROM contracts WHERE ${where}`, params)?.count || 0;
+    const total = queryOne(`SELECT COUNT(*) as count FROM contracts c WHERE ${where}`, params)?.count || 0;
     const data = queryAll(
       `SELECT c.*, 
          COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END), 0) as occurred_amount

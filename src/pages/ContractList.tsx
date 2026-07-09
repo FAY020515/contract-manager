@@ -12,6 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import type { Contract, ContractStatus } from '../types';
 import { CONTRACT_STATUSES, STATUS_COLORS } from '../types';
+import * as XLSX from 'xlsx';
 
 const { RangePicker } = DatePicker;
 
@@ -107,7 +108,6 @@ const ContractList: React.FC = () => {
 
   const handleExport = async () => {
     try {
-      const XLSX = await import('xlsx');
       const allData = await window.api.getContracts({ pageSize: 99999 });
       const ws = XLSX.utils.json_to_sheet(allData.data.map(c => ({
         '合同编号': c.contract_no,
@@ -143,10 +143,9 @@ const ContractList: React.FC = () => {
 
   const handleImportFile = async (file: File) => {
     try {
-      const XLSX = await import('xlsx');
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
-      const sheet = workbook.sheets[workbook.sheetNames[0]];
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet);
       if (rows.length === 0) {
         message.warning('Excel 文件中没有数据');
@@ -155,9 +154,10 @@ const ContractList: React.FC = () => {
       setImportPreview(rows);
       setImportResult(null);
     } catch (e) {
+      console.error('Excel 解析错误:', e);
       message.error('文件解析失败，请确保是有效的 Excel 文件');
     }
-    return false; // prevent auto-upload
+    return false;
   };
 
   const handleConfirmImport = async () => {
@@ -181,7 +181,6 @@ const ContractList: React.FC = () => {
   };
 
   const handleDownloadTemplate = async () => {
-    const XLSX = await import('xlsx');
     const headers = ['合同编号', '合同名称', '合同类型', '甲方', '乙方', '合同金额', '币种', '签订日期', '生效日期', '到期日期', '状态', '所属部门', '负责人', '合同摘要'];
     const example = ['HT-2024-001', '示例采购合同', '采购', 'XX公司', 'YY公司', 100000, 'CNY', '2024-01-01', '2024-01-15', '2025-01-14', '执行中', '采购部', '张三', '办公设备采购'];
     const ws = XLSX.utils.aoa_to_sheet([headers, example]);
