@@ -171,6 +171,8 @@ COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END
 - 触发时机：`server/index.js` 启动 30 秒后检查一次，之后每小时检查一次，由 `shouldAutoBackupNow()` 判断是否到期，再调 `performAutoBackup()`。
 - 默认备份目录 `data/backups/`（`DEFAULT_BACKUP_DIR`），`backupDir` 留空即用默认。`backupDir` 由 `normalizeBackupDir()` 校验：必须是不含 `..` 的绝对路径，且不能等于数据库所在目录，否则记一条警告并回退默认目录；写入（`setAutoBackupConfig`）和读取（`getAutoBackupConfig`）两侧都会钳制。文件名带毫秒，避免同一秒内两次备份互相覆盖。
 - 轮转按前缀分别处理：`auto_backup_*` 受用户配置的 `keepCount` 控制，`pre_import_*` 固定保留最近 5 份（`PRE_IMPORT_KEEP`）。
+- **备份内容只有数据库文件（台账数据），不含附件本体。** 合同附件和收付款凭证的真实文件存在 `data/uploads/`，数据库的 `attachments` 表与 `payments.attachment` 只记文件名/原名/大小，所以单靠一个 .db 恢复后附件栏会显示存在但打不开；跨机迁移必须同时拷 `uploads` 目录。`exportBackup()`/`performAutoBackup()` 都只写 .db，设置页已把这一点写成提示。
+- `auto_backup` 配置另有 `lastError` 字段：`performAutoBackup()` 成功时清空、失败时写入原因，设置页用红色 Alert 显示"最近一次自动备份没有成功"。这一步很重要——备份目录指向 U 盘而盘没插时，定时任务原本只会写控制台日志，界面上无声无息。
 - **导入必须"先校验、再覆盖"**：`importBackup()` 先验证上传文件的 SQLite 头和 `contracts` 表，通过后先把当前库存成 `pre_import_*.db`，然后才覆盖 `contracts.db`，中途失败会回滚。原因：直接复制文件会在解析失败时把运行中的数据库变成无效文件，此时所有接口报 `file is not a database`，且 `initDatabase()` 重启也起不来，只能人工替换文件恢复。
 
 ### 列配置功能

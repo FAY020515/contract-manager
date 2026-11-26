@@ -28,6 +28,7 @@ const Settings: React.FC = () => {
   const [autoBackupFrequency, setAutoBackupFrequency] = useState<'daily' | 'weekly'>('daily');
   const [autoBackupKeepCount, setAutoBackupKeepCount] = useState(7);
   const [autoBackupLastTime, setAutoBackupLastTime] = useState<string | null>(null);
+  const [autoBackupLastError, setAutoBackupLastError] = useState<string | null>(null);
   const [autoBackupDefaultDir, setAutoBackupDefaultDir] = useState('');
   const [autoBackupSaving, setAutoBackupSaving] = useState(false);
   const [autoBackupTriggering, setAutoBackupTriggering] = useState(false);
@@ -51,6 +52,7 @@ const Settings: React.FC = () => {
         setAutoBackupFrequency(autoConfig.frequency);
         setAutoBackupKeepCount(autoConfig.keepCount);
         setAutoBackupLastTime(autoConfig.lastBackupTime);
+        setAutoBackupLastError(autoConfig.lastError ?? null);
         setAutoBackupDefaultDir(autoConfig.defaultDir);
       }
     } catch (e) {
@@ -112,10 +114,10 @@ const Settings: React.FC = () => {
   const handleExport = async () => {
     try {
       const result = await window.api.exportBackup();
-      if (result) message.success('备份导出成功');
+      if (result) message.success('备份文件已下载到浏览器下载文件夹，请拷到 U 盘保存');
       else message.error('备份导出失败');
     } catch (e) {
-      message.error('操作失败');
+      message.error(e instanceof Error ? e.message : '操作失败');
     }
   };
 
@@ -165,9 +167,12 @@ const Settings: React.FC = () => {
       if (result.success) {
         message.success('备份成功');
         setAutoBackupLastTime(result.time);
+        setAutoBackupLastError(null);
       }
     } catch (e) {
-      message.error(e instanceof Error ? e.message : '备份失败');
+      const msg = e instanceof Error ? e.message : '备份失败';
+      setAutoBackupLastError(msg);
+      message.error(msg);
     }
     setAutoBackupTriggering(false);
   };
@@ -294,7 +299,7 @@ const Settings: React.FC = () => {
         <Col xs={24} lg={12}>
           <Card title="数据管理" loading={loading}>
             <Alert
-              message="定期备份数据，防止意外丢失。备份文件为 SQLite 数据库文件。"
+              message="定期备份数据，防止意外丢失。导出的 .db 文件包含合同、收付款、提醒等台账，但不含上传的合同附件文件本体（它们存在数据目录的 uploads 文件夹里），恢复台账后需要另外拷贝该文件夹附件才能打开。"
               type="info"
               showIcon
               style={{ marginBottom: 16 }}
@@ -347,7 +352,7 @@ const Settings: React.FC = () => {
             loading={loading}
           >
             <Alert
-              message="开启后，系统会自动定期备份数据库。建议将备份目录设为云盘同步文件夹（如 OneDrive），这样硬盘损坏也能恢复。"
+              message="开启后，系统会定期把数据库备份到下面的目录。建议保持默认（本机程序数据目录下的 backups 文件夹），这样不插 U 盘也能稳定备份；要给同事或自己留一份带走副本时，用上方「数据管理 → 导出数据库备份」下载后拷进 U 盘。"
               type="warning"
               showIcon
               style={{ marginBottom: 16 }}
@@ -415,6 +420,16 @@ const Settings: React.FC = () => {
                     {dayjs(autoBackupLastTime).format('YYYY-MM-DD HH:mm:ss')}
                   </span>
                 </div>
+              )}
+
+              {autoBackupLastError && (
+                <Alert
+                  type="error"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                  message="最近一次自动备份没有成功"
+                  description={autoBackupLastError}
+                />
               )}
 
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>

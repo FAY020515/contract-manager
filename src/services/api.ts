@@ -240,6 +240,7 @@ export const api = {
       frequency: 'daily' | 'weekly';
       keepCount: number;
       lastBackupTime: string | null;
+      lastError?: string | null;
       defaultDir: string;
     }>('/backup/auto-config'),
 

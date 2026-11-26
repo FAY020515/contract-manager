@@ -139,6 +139,7 @@ declare global {
         frequency: 'daily' | 'weekly';
         keepCount: number;
         lastBackupTime: string | null;
+        lastError?: string | null;
         defaultDir: string;
       }>;
       setAutoBackupConfig: (config: {

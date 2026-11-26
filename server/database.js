@@ -679,6 +679,7 @@ function getAutoBackupConfig() {
       frequency: 'daily',
       keepCount: 7,
       lastBackupTime: null,
+      lastError: null,
     };
   }
   try {
@@ -690,6 +691,7 @@ function getAutoBackupConfig() {
       frequency: config.frequency === 'weekly' ? 'weekly' : 'daily',
       keepCount: Number.isFinite(keep) && keep >= 1 ? Math.floor(keep) : 7,
       lastBackupTime: config.lastBackupTime || null,
+      lastError: config.lastError || null,
     };
   } catch (_) {
     return {
@@ -698,6 +700,7 @@ function getAutoBackupConfig() {
       frequency: 'daily',
       keepCount: 7,
       lastBackupTime: null,
+      lastError: null,
     };
   }
 }
@@ -711,10 +714,20 @@ function setAutoBackupConfig(config) {
     frequency: (config.frequency !== undefined ? config.frequency : current.frequency) === 'weekly' ? 'weekly' : 'daily',
     keepCount: Number.isFinite(incomingKeep) && incomingKeep >= 1 ? Math.floor(incomingKeep) : current.keepCount,
     lastBackupTime: config.lastBackupTime !== undefined ? config.lastBackupTime : current.lastBackupTime,
+    lastError: config.lastError !== undefined ? config.lastError : current.lastError,
   };
   runSql('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ['auto_backup', JSON.stringify(merged)]);
   saveToDisk();
   return merged;
+}
+
+// 记录本次自动备份的结果，供设置页显示；记录本身失败不应影响接口返回
+function rememberBackupResult(fields) {
+  try {
+    setAutoBackupConfig(fields);
+  } catch (e) {
+    console.error('  备份结果记录失败:', e.message);
+  }
 }
 
 function performAutoBackup() {
@@ -725,8 +738,10 @@ function performAutoBackup() {
       fs.mkdirSync(backupDir, { recursive: true });
     }
   } catch (e) {
-    console.error('  备份目录创建失败:', e.message);
-    return { success: false, error: '备份目录无法创建：' + e.message };
+    const msg = '备份目录无法创建：' + e.message + (config.backupDir ? '' : '（默认目录）');
+    console.error('  ', msg);
+    rememberBackupResult({ lastError: msg });
+    return { success: false, error: msg };
   }
   const now = new Date();
   const filename = `auto_backup_${backupStamp()}.db`;
@@ -734,17 +749,22 @@ function performAutoBackup() {
   try {
     const exportOk = exportBackup(backupPath);
     if (!exportOk) {
-      return { success: false, error: '导出失败' };
+      const msg = '导出失败：数据库尚未就绪';
+      console.error('  ', msg);
+      rememberBackupResult({ lastError: msg });
+      return { success: false, error: msg };
     }
-    // 更新上次备份时间
-    setAutoBackupConfig({ lastBackupTime: now.toISOString() });
+    // 记录成功时间并清除上次的失败提示
+    rememberBackupResult({ lastBackupTime: now.toISOString(), lastError: null });
     // 清理旧备份
     cleanOldBackups(backupDir, config.keepCount, 'auto_backup_');
     console.log(`  自动备份完成: ${backupPath}`);
     return { success: true, path: backupPath, time: now.toISOString() };
   } catch (e) {
-    console.error('  自动备份失败:', e.message);
-    return { success: false, error: e.message };
+    const msg = '自动备份失败：' + e.message;
+    console.error('  ', msg);
+    rememberBackupResult({ lastError: msg });
+    return { success: false, error: msg };
   }
 }
 
