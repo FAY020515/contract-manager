@@ -28,6 +28,18 @@ function getLegacyDataDir() {
   }
 }
 
+// v1.0.x 的打包版把数据放在 exe 同级的 data 目录，而现在的打包版读用户数据目录，
+// 老用户升级时数据只能从这里搬过来
+function getExeSideDataDir() {
+  try {
+    const { app } = require('electron');
+    if (!app.isPackaged) return null;
+    return path.join(path.dirname(process.execPath), 'data');
+  } catch (_) {
+    return null;
+  }
+}
+
 const DB_DIR = getDataDir();
 const DB_PATH = path.join(DB_DIR, 'contracts.db');
 
@@ -61,12 +73,14 @@ async function initDatabase() {
     fs.mkdirSync(DB_DIR, { recursive: true });
   }
 
-  // 自动迁移：旧版数据在 AppData，新版存在 exe 旁边
+  // 目标库不存在时，按优先级从旧位置搬数据：先 exe 同级目录（v1.0.x 打包版），再 AppData
   if (!fs.existsSync(DB_PATH)) {
-    try {
-      const legacyDir = getLegacyDataDir();
-      const legacyDB = legacyDir ? path.join(legacyDir, 'contracts.db') : null;
-      if (legacyDB && fs.existsSync(legacyDB)) {
+    const candidates = [getExeSideDataDir(), getLegacyDataDir()]
+      .filter(d => d && path.resolve(d) !== path.resolve(DB_DIR));
+    for (const legacyDir of candidates) {
+      const legacyDB = path.join(legacyDir, 'contracts.db');
+      if (!fs.existsSync(legacyDB)) continue;
+      try {
         fs.copyFileSync(legacyDB, DB_PATH);
         // 同时迁移上传目录
         const legacyUploads = path.join(legacyDir, 'uploads');
@@ -78,9 +92,10 @@ async function initDatabase() {
           copyDirSync(legacyUploads, newUploads);
         }
         console.log('  已从旧目录迁移数据:', legacyDB);
+      } catch (e) {
+        console.log('  旧数据迁移失败（不影响使用）:', e.message);
       }
-    } catch (e) {
-      console.log('  旧数据迁移失败（不影响使用）:', e.message);
+      break;
     }
   }
 

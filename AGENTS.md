@@ -126,6 +126,8 @@ COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END
 
 **数据迁移**：server/database.js 的 `initDatabase()` 在目标文件不存在时，会从旧版 AppData 目录自动迁移。注意：必须先停止所有 node 进程再复制数据库文件，否则运行中的 server 会覆盖。
 
+> 补充（2026-11-26）：迁移只在**目标库不存在**时发生，目标已有数据时绝不覆盖。候选来源按优先级为 `getExeSideDataDir()`（v1.0.x 打包版把数据放在 exe 同级 `data/`）→ `getLegacyDataDir()`（`app.getPath('userData')/data`，即当前打包版的存放位置）；与 `DB_DIR` 同路径的候选会被跳过，所以现行版本里 AppData 那条实际是空操作。早期注释写的"旧版在 AppData、新版在 exe 旁边"方向是反的，已按实际代码修正。
+
 **数据库文件同步**：以下三个文件需保持 schema 一致：`server/database.js`, `electron/database.ts`, `electron/database.js`（编译产物）
 
 > 补充（2026-11-26）：Web 与 Electron 用的是同一个数据库层——`server/index.js` 和 `electron/main.js` 都 require `server/database.js`。所以日常改动只需维护 `server/database.js`。`electron/database.ts` 与 `electron/database.js` 是早期 IPC 方案的遗留副本，schema 已经落后（例如没有本次新增的自动备份函数），排查问题时不要以它们为准。
