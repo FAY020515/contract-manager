@@ -730,6 +730,20 @@ function rememberBackupResult(fields) {
   }
 }
 
+// 自动备份产物是一个目录：contracts.db 加上当时的 uploads 副本。
+// 附件本体只存在 data/uploads 里、数据库只存文件名，所以单备 .db 会丢掉扫描件/凭证。
+function writeFullBackup(targetDir) {
+  fs.mkdirSync(targetDir, { recursive: true });
+  if (!exportBackup(path.join(targetDir, 'contracts.db'))) {
+    return false;
+  }
+  const uploadsDir = getUploadsDir();
+  if (fs.existsSync(uploadsDir)) {
+    copyDirSync(uploadsDir, path.join(targetDir, 'uploads'));
+  }
+  return true;
+}
+
 function performAutoBackup() {
   const config = getAutoBackupConfig();
   const backupDir = config.backupDir || DEFAULT_BACKUP_DIR;
@@ -744,10 +758,10 @@ function performAutoBackup() {
     return { success: false, error: msg };
   }
   const now = new Date();
-  const filename = `auto_backup_${backupStamp()}.db`;
+  const filename = `auto_backup_${backupStamp()}`;
   const backupPath = path.join(backupDir, filename);
   try {
-    const exportOk = exportBackup(backupPath);
+    const exportOk = writeFullBackup(backupPath);
     if (!exportOk) {
       const msg = '导出失败：数据库尚未就绪';
       console.error('  ', msg);
@@ -771,12 +785,13 @@ function performAutoBackup() {
 function cleanOldBackups(backupDir, keepCount, prefix) {
   try {
     const files = fs.readdirSync(backupDir)
-      .filter(f => f.startsWith(prefix) && f.endsWith('.db'))
+      // 备份单元现在既可能是目录（auto_backup_*），也可能是早前的单文件（*.db），按前缀一并统计
+      .filter(f => f.startsWith(prefix))
       .map(f => ({ name: f, path: path.join(backupDir, f), mtime: fs.statSync(path.join(backupDir, f)).mtime }))
       .sort((a, b) => b.mtime - a.mtime);
     if (files.length > keepCount) {
       files.slice(keepCount).forEach(f => {
-        try { fs.unlinkSync(f.path); } catch (_) {}
+        try { fs.rmSync(f.path, { recursive: true, force: true }); } catch (_) {}
       });
     }
   } catch (_) {}

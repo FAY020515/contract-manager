@@ -299,7 +299,7 @@ const Settings: React.FC = () => {
         <Col xs={24} lg={12}>
           <Card title="数据管理" loading={loading}>
             <Alert
-              message="定期备份数据，防止意外丢失。导出的 .db 文件包含合同、收付款、提醒等台账，但不含上传的合同附件文件本体（它们存在数据目录的 uploads 文件夹里），恢复台账后需要另外拷贝该文件夹附件才能打开。"
+              message="定期备份数据，防止意外丢失。导出的 .db 文件只包含合同、收付款、提醒等台账，不含上传的合同附件文件本体；要连附件一起备份请开启下方「自动备份」（它会把台账和 uploads 文件夹一起存成一份备份），或者另外手动拷贝数据目录下的 uploads 文件夹。"
               type="info"
               showIcon
               style={{ marginBottom: 16 }}
@@ -352,7 +352,7 @@ const Settings: React.FC = () => {
             loading={loading}
           >
             <Alert
-              message="开启后，系统会定期把数据库备份到下面的目录。建议保持默认（本机程序数据目录下的 backups 文件夹），这样不插 U 盘也能稳定备份；要给同事或自己留一份带走副本时，用上方「数据管理 → 导出数据库备份」下载后拷进 U 盘。"
+              message="开启后，系统会定期把台账和已上传的附件一起备份到下面的目录：每份备份是一个文件夹，里面有 contracts.db 和 uploads 附件副本。建议保持默认（本机程序数据目录下的 backups 文件夹），这样不插 U 盘也能稳定备份；要留一份带走副本时，插上 U 盘，把 backups 里最新的那个 auto_backup_ 文件夹整个拷过去即可。"
               type="warning"
               showIcon
               style={{ marginBottom: 16 }}
