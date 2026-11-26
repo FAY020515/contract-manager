@@ -50,6 +50,8 @@ npm run package
 1. **Electron 桌面模式** (`npm run dev`): 主进程调用 `electron/database.ts` 直接操作 sql.js，通过 IPC 与渲染进程通信
 2. **Web 服务模式** (`npm run dev:web` 或 `npm run server`): Express 服务器在 `server/index.js` 启动，前端通过 REST API (`/api/*`) 访问
 
+> **当前实际链路（2026-11-26 核实）**：`src/main.tsx` 用 `(window as any).api = api` 把渲染进程的调用固定接到 `src/services/api.ts` 的 HTTP 客户端，所以两种模式下前端一律走 `/api/*`。`electron/main.ts` 里的 `ipcMain.handle` 和 `electron/database.ts` 已不被页面调用，属于遗留代码。Electron 桌面模式同样需要 3000 端口上有 Express 服务，而 `npm run dev` 并不会启动它，需另开一个终端跑 `npm run server`。
+
 ### 目录结构
 
 ```
@@ -124,6 +126,8 @@ COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END
 
 **数据库文件同步**：以下三个文件需保持 schema 一致：`server/database.js`, `electron/database.ts`, `electron/database.js`（编译产物）
 
+> 补充（2026-11-26）：按上文"当前实际链路"，页面只调 `server/` 的 HTTP 接口，日常改动只需维护 `server/database.js`。`electron/database.ts` 与编译产物 `electron/database.js` 是遗留副本，schema 已经落后（例如缺少自动备份相关函数），排查问题时不要以它们为准。
+
 ### 认证机制
 
 - HMAC-SHA256 token（非标准 JWT），随机 secret，24 小时过期
@@ -155,7 +159,15 @@ COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END
 
 **设置**: `GET /api/settings`, `GET/PUT /api/settings/:key`
 
-**备份**: `POST /api/backup/export`
+**备份** (admin only): `POST /api/backup/export`, `POST /api/backup/import`, `GET/PUT /api/backup/auto-config`, `POST /api/backup/auto-trigger`
+
+### 备份与恢复
+
+- 自动备份配置存在 `settings` 表的 `auto_backup` 键：`{ enabled, backupDir, frequency('daily'|'weekly'), keepCount, lastBackupTime }`。读取时统一归一化：`keepCount` 至少 1（默认 7），`frequency` 只认 `weekly`，其余都按 `daily`。
+- 触发时机：`server/index.js` 启动 30 秒后检查一次，之后每小时检查一次，由 `shouldAutoBackupNow()` 判断是否到期，再调 `performAutoBackup()`。
+- 默认备份目录 `data/backups/`（`DEFAULT_BACKUP_DIR`），`backupDir` 留空即用默认。文件名带毫秒，避免同一秒内两次备份互相覆盖。
+- 轮转按前缀分别处理：`auto_backup_*` 受用户配置的 `keepCount` 控制，`pre_import_*` 固定保留最近 5 份（`PRE_IMPORT_KEEP`）。
+- **导入必须"先校验、再覆盖"**：`importBackup()` 先验证上传文件的 SQLite 头和 `contracts` 表，通过后先把当前库存成 `pre_import_*.db`，然后才覆盖 `contracts.db`，中途失败会回滚。原因：直接复制文件会在解析失败时把运行中的数据库变成无效文件，此时所有接口报 `file is not a database`，且 `initDatabase()` 重启也起不来，只能人工替换文件恢复。
 
 ### 列配置功能
 
@@ -188,3 +200,6 @@ COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END
 - 统计查询使用 SQLite 的 `strftime` 函数处理日期聚合
 - 中文文件名上传需 `Buffer.from(file.originalname, 'latin1').toString('utf8')` 修正编码
 - 提醒状态规则：合同更新 → 重置为 pending；合同终止/到期 → processed
+- 限定管理员的接口在 handler 首行写 `if (req.user.role !== 'admin') return res.status(403).json({ error: '权限不足' })`（鉴权中间件只保证已登录，不区分角色）；前端对应入口用 `useAuth()` 的 `user?.role === 'admin'` 控制显隐，避免普通用户触发 403
+- 破坏性操作（覆盖数据库文件、批量删除）必须先校验输入再动目标，并留下可回滚的副本；错误响应要区分"未做改动"和"已改动但失败"
+- 提交前至少跑 `npx tsc --noEmit -p tsconfig.json` 和 `npm run build`；涉及备份/导入这类改数据库的功能，另用一份独立的 `data/` 目录起服务实测，不要拿真实库试
