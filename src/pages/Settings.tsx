@@ -1,20 +1,41 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Card, Form, Input, Button, Space, Tag, message, Divider,
-  Popconfirm, Row, Col, Alert, InputNumber,
+  Popconfirm, Row, Col, Alert, InputNumber, Switch, Select, Spin,
 } from 'antd';
 import {
   PlusOutlined, DeleteOutlined, SaveOutlined,
   DatabaseOutlined, DownloadOutlined, UploadOutlined,
+  ClockCircleOutlined, SyncOutlined, FolderOpenOutlined,
 } from '@ant-design/icons';
+import dayjs from 'dayjs';
+import { useAuth } from '../contexts/AuthContext';
 
 const Settings: React.FC = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [types, setTypes] = useState<string[]>([]);
   const [departments, setDepartments] = useState<string[]>([]);
   const [reminderDays, setReminderDays] = useState<number[]>([7, 15, 30]);
   const [newType, setNewType] = useState('');
   const [newDept, setNewDept] = useState('');
   const [loading, setLoading] = useState(true);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 自动备份状态
+  const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
+  const [autoBackupDir, setAutoBackupDir] = useState('');
+  const [autoBackupFrequency, setAutoBackupFrequency] = useState<'daily' | 'weekly'>('daily');
+  const [autoBackupKeepCount, setAutoBackupKeepCount] = useState(7);
+  const [autoBackupLastTime, setAutoBackupLastTime] = useState<string | null>(null);
+  const [autoBackupDefaultDir, setAutoBackupDefaultDir] = useState('');
+  const [autoBackupSaving, setAutoBackupSaving] = useState(false);
+  const [autoBackupTriggering, setAutoBackupTriggering] = useState(false);
+
+  // 检测是否在 Electron 桌面环境中运行
+  const isElectron = () =>
+    typeof navigator !== 'undefined' &&
+    navigator.userAgent.toLowerCase().includes('electron');
 
   useEffect(() => {
     loadSettings();
@@ -27,6 +48,16 @@ const Settings: React.FC = () => {
       setTypes(settings.contract_types || []);
       setDepartments(settings.departments || []);
       setReminderDays(settings.reminder_days || [7, 15, 30]);
+      // 备份配置仅管理员可见
+      if (isAdmin) {
+        const autoConfig = await window.api.getAutoBackupConfig();
+        setAutoBackupEnabled(autoConfig.enabled);
+        setAutoBackupDir(autoConfig.backupDir);
+        setAutoBackupFrequency(autoConfig.frequency);
+        setAutoBackupKeepCount(autoConfig.keepCount);
+        setAutoBackupLastTime(autoConfig.lastBackupTime);
+        setAutoBackupDefaultDir(autoConfig.defaultDir);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -95,15 +126,74 @@ const Settings: React.FC = () => {
 
   const handleImport = async () => {
     try {
-      const result = await window.api.importBackup();
-      if (result) {
-        message.success('备份导入成功，请重启应用');
+      if (isElectron()) {
+        // Electron 桌面模式：使用原生文件对话框
+        const result = await window.api.importBackup();
+        if (result) {
+          message.success('备份导入成功，请重启应用');
+        } else {
+          message.error('备份导入失败');
+        }
       } else {
-        message.error('备份导入失败');
+        // Web 模式：触发隐藏的文件选择器
+        fileInputRef.current?.click();
       }
     } catch (e) {
       message.error('操作失败');
     }
+  };
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // 重置 input 的值，以便重复选择同一文件
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const result = await window.api.importBackup(file);
+      if (result) {
+        message.success('备份导入成功，数据已恢复');
+      } else {
+        message.error('备份导入失败');
+      }
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '操作失败');
+    }
+  };
+
+  // ========== 自动备份 ==========
+  const saveAutoBackupConfig = async () => {
+    setAutoBackupSaving(true);
+    try {
+      await window.api.setAutoBackupConfig({
+        enabled: autoBackupEnabled,
+        backupDir: autoBackupDir,
+        frequency: autoBackupFrequency,
+        keepCount: autoBackupKeepCount,
+      });
+      message.success('自动备份设置已保存');
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '保存失败');
+    }
+    setAutoBackupSaving(false);
+  };
+
+  const triggerBackupNow = async () => {
+    setAutoBackupTriggering(true);
+    try {
+      const result = await window.api.triggerAutoBackup();
+      if (result.success) {
+        message.success('备份成功');
+        setAutoBackupLastTime(result.time);
+      }
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '备份失败');
+    }
+    setAutoBackupTriggering(false);
+  };
+
+  const useDefaultDir = () => {
+    setAutoBackupDir(autoBackupDefaultDir);
+    message.info('已填入默认备份目录，请保存');
   };
 
   return (
@@ -219,6 +309,7 @@ const Settings: React.FC = () => {
           </Card>
         </Col>
 
+        {isAdmin && (
         <Col xs={24} lg={12}>
           <Card title="数据管理" loading={loading}>
             <Alert
@@ -250,8 +341,124 @@ const Settings: React.FC = () => {
                 </Button>
               </Popconfirm>
             </Space>
+            {/* Web 模式下使用的隐藏文件选择器 */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".db"
+              style={{ display: 'none' }}
+              onChange={handleFileSelected}
+            />
           </Card>
         </Col>
+        )}
+
+        {/* 自动备份配置 */}
+        {isAdmin && (
+        <Col xs={24} lg={12}>
+          <Card
+            title={
+              <Space>
+                <ClockCircleOutlined />
+                <span>自动备份</span>
+              </Space>
+            }
+            loading={loading}
+          >
+            <Alert
+              message="开启后，系统会自动定期备份数据库。建议将备份目录设为云盘同步文件夹（如 OneDrive），这样硬盘损坏也能恢复。"
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+
+            <Form layout="vertical">
+              <Form.Item label="启用自动备份">
+                <Switch
+                  checked={autoBackupEnabled}
+                  onChange={setAutoBackupEnabled}
+                  checkedChildren="开启"
+                  unCheckedChildren="关闭"
+                />
+              </Form.Item>
+
+              <Form.Item
+                label="备份目录"
+                extra={
+                  <span style={{ fontSize: 12, color: '#999' }}>
+                    默认目录：{autoBackupDefaultDir}（留空则使用默认）
+                  </span>
+                }
+              >
+                <Space.Compact style={{ width: '100%' }}>
+                  <Input
+                    value={autoBackupDir}
+                    onChange={e => setAutoBackupDir(e.target.value)}
+                    placeholder={autoBackupDefaultDir}
+                  />
+                  <Button
+                    icon={<FolderOpenOutlined />}
+                    onClick={useDefaultDir}
+                  >
+                    默认
+                  </Button>
+                </Space.Compact>
+              </Form.Item>
+
+              <Form.Item label="备份频率">
+                <Select
+                  value={autoBackupFrequency}
+                  onChange={v => setAutoBackupFrequency(v)}
+                  style={{ width: '100%' }}
+                  options={[
+                    { value: 'daily', label: '每天一次' },
+                    { value: 'weekly', label: '每周一次' },
+                  ]}
+                />
+              </Form.Item>
+
+              <Form.Item label="保留份数" extra="超过此数量时，自动删除最旧的备份">
+                <InputNumber
+                  value={autoBackupKeepCount}
+                  onChange={v => setAutoBackupKeepCount(v || 7)}
+                  min={1}
+                  max={90}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+
+              {autoBackupLastTime && (
+                <div style={{ marginBottom: 16, padding: '8px 12px', background: '#f5f5f5', borderRadius: 4 }}>
+                  <span style={{ color: '#666' }}>上次备份时间：</span>
+                  <span style={{ fontWeight: 500 }}>
+                    {dayjs(autoBackupLastTime).format('YYYY-MM-DD HH:mm:ss')}
+                  </span>
+                </div>
+              )}
+
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <Button
+                  type="primary"
+                  icon={<SaveOutlined />}
+                  loading={autoBackupSaving}
+                  onClick={saveAutoBackupConfig}
+                  block
+                >
+                  保存自动备份设置
+                </Button>
+                <Button
+                  icon={<SyncOutlined spin={autoBackupTriggering} />}
+                  loading={autoBackupTriggering}
+                  onClick={triggerBackupNow}
+                  block
+                >
+                  立即备份一次
+                </Button>
+              </Space>
+            </Form>
+          </Card>
+        </Col>
+        )}
       </Row>
     </div>
   );

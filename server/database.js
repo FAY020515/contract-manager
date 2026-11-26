@@ -32,6 +32,7 @@ const DB_DIR = getDataDir();
 const DB_PATH = path.join(DB_DIR, 'contracts.db');
 
 let db = null;
+let SQL_INSTANCE = null;
 
 // 递归复制目录
 function copyDirSync(src, dest) {
@@ -54,6 +55,7 @@ async function initDatabase() {
   const SQL = await initSqlJs({
     locateFile: () => sqlWasmPath,
   });
+  SQL_INSTANCE = SQL;
 
   if (!fs.existsSync(DB_DIR)) {
     fs.mkdirSync(DB_DIR, { recursive: true });
@@ -536,8 +538,183 @@ function exportBackup(filePath) {
   return true;
 }
 
+// 备份文件名带毫秒，避免同一秒内两次备份互相覆盖
+function backupStamp() {
+  return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
+const SQLITE_MAGIC = 'SQLite format 3\0';
+
+function importBackup(filePath) {
+  // 校验必须在触碰 DB_PATH 之前完成，无效文件不能破坏运行中的库
+  let incoming;
+  try {
+    incoming = fs.readFileSync(filePath);
+  } catch (e) {
+    return { success: false, error: '无法读取上传文件：' + e.message };
+  }
+  if (incoming.length < 16 || incoming.subarray(0, 16).toString('latin1') !== SQLITE_MAGIC) {
+    return { success: false, error: '文件不是有效的 SQLite 数据库，已取消导入' };
+  }
+  try {
+    const probe = new SQL_INSTANCE.Database(incoming);
+    try {
+      const rows = probe.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='contracts'");
+      if (!rows.length || !rows[0].values.length) {
+        throw new Error('缺少 contracts 表，可能不是本系统的备份');
+      }
+    } finally {
+      probe.close();
+    }
+  } catch (e) {
+    return { success: false, error: '备份文件无法解析：' + e.message };
+  }
+
+  // 覆盖当前库之前先留一份应急备份，导入中途失败可以回滚
+  let emergencyPath = null;
+  try {
+    saveNow();
+    if (!fs.existsSync(DEFAULT_BACKUP_DIR)) {
+      fs.mkdirSync(DEFAULT_BACKUP_DIR, { recursive: true });
+    }
+    emergencyPath = path.join(DEFAULT_BACKUP_DIR, `pre_import_${backupStamp()}.db`);
+    fs.copyFileSync(DB_PATH, emergencyPath);
+  } catch (e) {
+    return { success: false, error: '导入前备份失败，已取消导入：' + e.message };
+  }
+
+  try {
+    if (db) db.close();
+    db = null;
+    fs.copyFileSync(filePath, DB_PATH);
+    db = new SQL_INSTANCE.Database(fs.readFileSync(DB_PATH));
+    createTables();
+    ensureAdminUser();
+    saveToDisk();
+    console.log('  数据库已从备份恢复:', DB_PATH, '（导入前的库已存至:', emergencyPath, '）');
+    return { success: true, restoreFile: emergencyPath };
+  } catch (e) {
+    try {
+      if (db) db.close();
+      db = null;
+      fs.copyFileSync(emergencyPath, DB_PATH);
+      db = new SQL_INSTANCE.Database(fs.readFileSync(DB_PATH));
+      console.error('  导入失败，已回滚到导入前的数据库');
+    } catch (rollbackErr) {
+      console.error('  导入失败且回滚失败，请手动用', emergencyPath, '恢复:', rollbackErr.message);
+    }
+    return { success: false, error: '导入失败：' + e.message };
+  }
+}
+
 function getDbPath() {
   return DB_PATH;
+}
+
+// ========== Auto Backup ==========
+
+const DEFAULT_BACKUP_DIR = path.join(DB_DIR, 'backups');
+
+function getAutoBackupConfig() {
+  const row = queryOne('SELECT value FROM settings WHERE key = ?', ['auto_backup']);
+  if (!row) {
+    return {
+      enabled: false,
+      backupDir: '',
+      frequency: 'daily',
+      keepCount: 7,
+      lastBackupTime: null,
+    };
+  }
+  try {
+    const config = JSON.parse(row.value);
+    const keep = Number(config.keepCount);
+    return {
+      enabled: config.enabled || false,
+      backupDir: config.backupDir || '',
+      frequency: config.frequency === 'weekly' ? 'weekly' : 'daily',
+      keepCount: Number.isFinite(keep) && keep >= 1 ? Math.floor(keep) : 7,
+      lastBackupTime: config.lastBackupTime || null,
+    };
+  } catch (_) {
+    return {
+      enabled: false,
+      backupDir: '',
+      frequency: 'daily',
+      keepCount: 7,
+      lastBackupTime: null,
+    };
+  }
+}
+
+function setAutoBackupConfig(config) {
+  const current = getAutoBackupConfig();
+  const merged = {
+    enabled: config.enabled !== undefined ? config.enabled : current.enabled,
+    backupDir: config.backupDir !== undefined ? config.backupDir : current.backupDir,
+    frequency: config.frequency !== undefined ? config.frequency : current.frequency,
+    keepCount: config.keepCount !== undefined ? config.keepCount : current.keepCount,
+    lastBackupTime: config.lastBackupTime !== undefined ? config.lastBackupTime : current.lastBackupTime,
+  };
+  runSql('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ['auto_backup', JSON.stringify(merged)]);
+  saveToDisk();
+  return merged;
+}
+
+function performAutoBackup() {
+  const config = getAutoBackupConfig();
+  const backupDir = config.backupDir || DEFAULT_BACKUP_DIR;
+  try {
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+  } catch (e) {
+    console.error('  备份目录创建失败:', e.message);
+    return { success: false, error: '备份目录无法创建：' + e.message };
+  }
+  const now = new Date();
+  const filename = `auto_backup_${backupStamp()}.db`;
+  const backupPath = path.join(backupDir, filename);
+  try {
+    const exportOk = exportBackup(backupPath);
+    if (!exportOk) {
+      return { success: false, error: '导出失败' };
+    }
+    // 更新上次备份时间
+    setAutoBackupConfig({ lastBackupTime: now.toISOString() });
+    // 清理旧备份
+    cleanOldBackups(backupDir, config.keepCount);
+    console.log(`  自动备份完成: ${backupPath}`);
+    return { success: true, path: backupPath, time: now.toISOString() };
+  } catch (e) {
+    console.error('  自动备份失败:', e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+function cleanOldBackups(backupDir, keepCount) {
+  try {
+    const files = fs.readdirSync(backupDir)
+      .filter(f => f.startsWith('auto_backup_') && f.endsWith('.db'))
+      .map(f => ({ name: f, path: path.join(backupDir, f), mtime: fs.statSync(path.join(backupDir, f)).mtime }))
+      .sort((a, b) => b.mtime - a.mtime);
+    if (files.length > keepCount) {
+      files.slice(keepCount).forEach(f => {
+        try { fs.unlinkSync(f.path); } catch (_) {}
+      });
+    }
+  } catch (_) {}
+}
+
+function shouldAutoBackupNow() {
+  const config = getAutoBackupConfig();
+  if (!config.enabled) return false;
+  if (!config.lastBackupTime) return true;
+  const last = new Date(config.lastBackupTime);
+  const now = new Date();
+  const diffMs = now - last;
+  const intervalMs = config.frequency === 'weekly' ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+  return diffMs >= intervalMs;
 }
 
 function getUploadsDir() {
@@ -777,4 +954,10 @@ module.exports = {
   authenticateUser, generateToken, verifyToken,
   getUserById, getAllUsers, createUser, updateUser, deleteUser,
   exportBackup,
+  importBackup,
+  getAutoBackupConfig,
+  setAutoBackupConfig,
+  performAutoBackup,
+  shouldAutoBackupNow,
+  DEFAULT_BACKUP_DIR,
 };

@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const { initDatabase, saveNow } = require('./database');
+const { initDatabase, saveNow, shouldAutoBackupNow, performAutoBackup } = require('./database');
 const { setupRoutes } = require('./routes');
 
 const app = express();
@@ -40,6 +40,30 @@ async function start() {
     console.log(`  局域网访问: http://${getLocalIP()}:${PORT}\n`);
     console.log(`  把上面的局域网地址发给同事即可使用\n`);
   });
+
+  // 自动备份定时检查：每小时检查一次是否需要备份
+  setInterval(() => {
+    try {
+      if (shouldAutoBackupNow()) {
+        console.log(`\n  [${new Date().toLocaleString('zh-CN')}] 执行定时自动备份...`);
+        performAutoBackup();
+      }
+    } catch (e) {
+      console.error('  自动备份检查失败:', e.message);
+    }
+  }, 60 * 60 * 1000); // 1 小时
+
+  // 启动后立即检查一次
+  setTimeout(() => {
+    try {
+      if (shouldAutoBackupNow()) {
+        console.log(`\n  [${new Date().toLocaleString('zh-CN')}] 启动时检测到需要备份，执行中...`);
+        performAutoBackup();
+      }
+    } catch (e) {
+      console.error('  启动备份检查失败:', e.message);
+    }
+  }, 30 * 1000); // 启动 30 秒后检查
 }
 
 function getLocalIP() {

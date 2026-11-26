@@ -132,7 +132,22 @@ declare global {
       setSetting: (key: string, value: any) => Promise<boolean>;
       getAllSettings: () => Promise<AppSettings>;
       exportBackup: () => Promise<boolean>;
-      importBackup: () => Promise<boolean>;
+      importBackup: (file?: File) => Promise<boolean>;
+      getAutoBackupConfig: () => Promise<{
+        enabled: boolean;
+        backupDir: string;
+        frequency: 'daily' | 'weekly';
+        keepCount: number;
+        lastBackupTime: string | null;
+        defaultDir: string;
+      }>;
+      setAutoBackupConfig: (config: {
+        enabled?: boolean;
+        backupDir?: string;
+        frequency?: 'daily' | 'weekly';
+        keepCount?: number;
+      }) => Promise<{ success: boolean; config: any }>;
+      triggerAutoBackup: () => Promise<{ success: boolean; path: string; time: string }>;
       openPath: (filePath: string) => Promise<void>;
       showNotification: (title: string, body: string) => Promise<void>;
     };

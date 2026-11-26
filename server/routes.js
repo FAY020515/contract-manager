@@ -554,8 +554,10 @@ function setupRoutes(app) {
   });
 
   // ========== Backup ==========
+  // 备份可导出/覆盖整个数据库，仅限管理员操作（与 /api/users 同一约定）
 
   app.post('/api/backup/export', (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: '权限不足' });
     try {
       const filename = `合同管理备份_${new Date().toISOString().slice(0, 10)}.db`;
       const dataDir = path.join(db.getDbPath(), '..');
@@ -567,6 +569,61 @@ function setupRoutes(app) {
       });
     } catch (e) {
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/backup/import', upload.single('file'), (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: '权限不足' });
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: '未选择文件' });
+      }
+      const result = db.importBackup(req.file.path);
+      // 清理上传的临时文件
+      try { fs.unlinkSync(req.file.path); } catch (_) {}
+      if (result.success) {
+        res.json({ success: true, restoreFile: result.restoreFile });
+      } else {
+        res.status(400).json({ error: result.error || '导入失败' });
+      }
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ========== Auto Backup Config ==========
+
+  app.get('/api/backup/auto-config', (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: '权限不足' });
+    try {
+      const config = db.getAutoBackupConfig();
+      res.json({ ...config, defaultDir: db.DEFAULT_BACKUP_DIR });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.put('/api/backup/auto-config', (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: '权限不足' });
+    try {
+      const config = db.setAutoBackupConfig(req.body || {});
+      res.json({ success: true, config });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/backup/auto-trigger', (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: '权限不足' });
+    try {
+      const result = db.performAutoBackup();
+      if (result.success) {
+        res.json(result);
+      } else {
+        res.status(500).json(result);
+      }
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
     }
   });
 

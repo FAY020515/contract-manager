@@ -213,7 +213,51 @@ export const api = {
     });
   },
 
-  importBackup: () => Promise.resolve(false), // TODO: file upload
+  importBackup: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return fetch(`${BASE}/backup/import`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    }).then(async res => {
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(err.error || '导入失败');
+      }
+      return true;
+    });
+  },
+
+  // ========== Auto Backup ==========
+  getAutoBackupConfig: () =>
+    request<{
+      enabled: boolean;
+      backupDir: string;
+      frequency: 'daily' | 'weekly';
+      keepCount: number;
+      lastBackupTime: string | null;
+      defaultDir: string;
+    }>('/backup/auto-config'),
+
+  setAutoBackupConfig: (config: {
+    enabled?: boolean;
+    backupDir?: string;
+    frequency?: 'daily' | 'weekly';
+    keepCount?: number;
+  }) =>
+    request<{ success: boolean; config: any }>('/backup/auto-config', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    }),
+
+  triggerAutoBackup: () =>
+    request<{ success: boolean; path: string; time: string }>('/backup/auto-trigger', {
+      method: 'POST',
+    }),
 
   // ========== Attachments ==========
   getAttachments: (contractId: number) =>
