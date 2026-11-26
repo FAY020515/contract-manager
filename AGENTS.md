@@ -50,7 +50,9 @@ npm run package
 1. **Electron 桌面模式** (`npm run dev`): 主进程调用 `electron/database.ts` 直接操作 sql.js，通过 IPC 与渲染进程通信
 2. **Web 服务模式** (`npm run dev:web` 或 `npm run server`): Express 服务器在 `server/index.js` 启动，前端通过 REST API (`/api/*`) 访问
 
-> **当前实际链路（2026-11-26 核实）**：`src/main.tsx` 用 `(window as any).api = api` 把渲染进程的调用固定接到 `src/services/api.ts` 的 HTTP 客户端，所以两种模式下前端一律走 `/api/*`。`electron/main.ts` 里的 `ipcMain.handle` 和 `electron/database.ts` 已不被页面调用，属于遗留代码。Electron 桌面模式同样需要 3000 端口上有 Express 服务，而 `npm run dev` 并不会启动它，需另开一个终端跑 `npm run server`。
+> **当前实际链路（2026-11-26 核实）**：渲染进程一律走 HTTP。`src/main.tsx` 用 `(window as any).api = api` 把调用固定接到 `src/services/api.ts` 的 REST 客户端；`package.json` 的 `main` 指向 `electron/main.js`，**`electron/main.ts` 已不再被执行**（`electron/main.ts` 里的 `ipcMain.handle` 与 `electron/database.ts` 属于遗留代码，排查问题不要看它们）。
+>
+> Electron 模式（`npm run dev` / `npm run start` / 打包后的 exe）由 `electron/main.js` 的 `startServer()` 在进程内自己起一套 Express——它 require 的就是 `server/database.js` 和 `server/routes.js`，端口从 3000 起被占用则自动往后试到 3100，`dist/` 由同一服务托管。所以**不需要另外开 `npm run server`**；改 `server/` 下的接口，桌面版 exe 会一起生效。它弹出的窗口只是一个"服务运行中 + 本机/局域网地址"的状态页，真正的使用界面是点按钮在浏览器里打开。
 
 ### 目录结构
 
@@ -126,7 +128,7 @@ COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END
 
 **数据库文件同步**：以下三个文件需保持 schema 一致：`server/database.js`, `electron/database.ts`, `electron/database.js`（编译产物）
 
-> 补充（2026-11-26）：按上文"当前实际链路"，页面只调 `server/` 的 HTTP 接口，日常改动只需维护 `server/database.js`。`electron/database.ts` 与编译产物 `electron/database.js` 是遗留副本，schema 已经落后（例如缺少自动备份相关函数），排查问题时不要以它们为准。
+> 补充（2026-11-26）：Web 与 Electron 用的是同一个数据库层——`server/index.js` 和 `electron/main.js` 都 require `server/database.js`。所以日常改动只需维护 `server/database.js`。`electron/database.ts` 与 `electron/database.js` 是早期 IPC 方案的遗留副本，schema 已经落后（例如没有本次新增的自动备份函数），排查问题时不要以它们为准。
 
 ### 认证机制
 
