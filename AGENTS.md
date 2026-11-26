@@ -165,7 +165,7 @@ COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END
 
 - 自动备份配置存在 `settings` 表的 `auto_backup` 键：`{ enabled, backupDir, frequency('daily'|'weekly'), keepCount, lastBackupTime }`。读取时统一归一化：`keepCount` 至少 1（默认 7），`frequency` 只认 `weekly`，其余都按 `daily`。
 - 触发时机：`server/index.js` 启动 30 秒后检查一次，之后每小时检查一次，由 `shouldAutoBackupNow()` 判断是否到期，再调 `performAutoBackup()`。
-- 默认备份目录 `data/backups/`（`DEFAULT_BACKUP_DIR`），`backupDir` 留空即用默认。文件名带毫秒，避免同一秒内两次备份互相覆盖。
+- 默认备份目录 `data/backups/`（`DEFAULT_BACKUP_DIR`），`backupDir` 留空即用默认。`backupDir` 由 `normalizeBackupDir()` 校验：必须是不含 `..` 的绝对路径，且不能等于数据库所在目录，否则记一条警告并回退默认目录；写入（`setAutoBackupConfig`）和读取（`getAutoBackupConfig`）两侧都会钳制。文件名带毫秒，避免同一秒内两次备份互相覆盖。
 - 轮转按前缀分别处理：`auto_backup_*` 受用户配置的 `keepCount` 控制，`pre_import_*` 固定保留最近 5 份（`PRE_IMPORT_KEEP`）。
 - **导入必须"先校验、再覆盖"**：`importBackup()` 先验证上传文件的 SQLite 头和 `contracts` 表，通过后先把当前库存成 `pre_import_*.db`，然后才覆盖 `contracts.db`，中途失败会回滚。原因：直接复制文件会在解析失败时把运行中的数据库变成无效文件，此时所有接口报 `file is not a database`，且 `initDatabase()` 重启也起不来，只能人工替换文件恢复。
 

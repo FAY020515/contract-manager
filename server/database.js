@@ -618,6 +618,26 @@ const DEFAULT_BACKUP_DIR = path.join(DB_DIR, 'backups');
 // 导入前的应急备份固定留在默认目录，单独轮转，不受用户配置的保留份数影响
 const PRE_IMPORT_KEEP = 5;
 
+// backupDir 由管理员在设置页填写，会被用于建目录、写备份和轮转删除，
+// 因此只接受不含 .. 的绝对路径，且不允许指向数据库自身所在目录；非法值回退到默认目录
+function normalizeBackupDir(raw) {
+  if (typeof raw !== 'string' || !raw.trim()) return '';
+  if (raw.includes('..')) {
+    console.warn('  备份目录配置无效（包含 ..），已改用默认目录');
+    return '';
+  }
+  if (!path.isAbsolute(raw)) {
+    console.warn('  备份目录必须是绝对路径，已改用默认目录:', raw);
+    return '';
+  }
+  const resolved = path.resolve(raw);
+  if (resolved === path.resolve(DB_DIR)) {
+    console.warn('  备份目录不能与数据库所在目录相同，已改用默认目录');
+    return '';
+  }
+  return resolved;
+}
+
 function getAutoBackupConfig() {
   const row = queryOne('SELECT value FROM settings WHERE key = ?', ['auto_backup']);
   if (!row) {
@@ -634,7 +654,7 @@ function getAutoBackupConfig() {
     const keep = Number(config.keepCount);
     return {
       enabled: config.enabled || false,
-      backupDir: config.backupDir || '',
+      backupDir: normalizeBackupDir(config.backupDir),
       frequency: config.frequency === 'weekly' ? 'weekly' : 'daily',
       keepCount: Number.isFinite(keep) && keep >= 1 ? Math.floor(keep) : 7,
       lastBackupTime: config.lastBackupTime || null,
@@ -652,11 +672,12 @@ function getAutoBackupConfig() {
 
 function setAutoBackupConfig(config) {
   const current = getAutoBackupConfig();
+  const incomingKeep = Number(config.keepCount !== undefined ? config.keepCount : current.keepCount);
   const merged = {
-    enabled: config.enabled !== undefined ? config.enabled : current.enabled,
-    backupDir: config.backupDir !== undefined ? config.backupDir : current.backupDir,
-    frequency: config.frequency !== undefined ? config.frequency : current.frequency,
-    keepCount: config.keepCount !== undefined ? config.keepCount : current.keepCount,
+    enabled: config.enabled !== undefined ? !!config.enabled : current.enabled,
+    backupDir: normalizeBackupDir(config.backupDir !== undefined ? config.backupDir : current.backupDir),
+    frequency: (config.frequency !== undefined ? config.frequency : current.frequency) === 'weekly' ? 'weekly' : 'daily',
+    keepCount: Number.isFinite(incomingKeep) && incomingKeep >= 1 ? Math.floor(incomingKeep) : current.keepCount,
     lastBackupTime: config.lastBackupTime !== undefined ? config.lastBackupTime : current.lastBackupTime,
   };
   runSql('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ['auto_backup', JSON.stringify(merged)]);
