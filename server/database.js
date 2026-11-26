@@ -98,10 +98,26 @@ async function initDatabase() {
   console.log('  数据库已就绪:', DB_PATH);
 }
 
+// 覆盖数据库文件必须走"同目录临时文件 + 改名"：直接 writeFileSync 会先清空原文件，
+// 若进程在清空与写完之间被杀或断电，contracts.db 就只剩半个甚至空文件，服务再也起不来
+function replaceFile(source, target) {
+  const tmpPath = target + '.tmp';
+  fs.copyFileSync(source, tmpPath);
+  fs.renameSync(tmpPath, target);
+}
+
 function saveToDisk() {
   if (!db) return;
-  const data = db.export();
-  fs.writeFileSync(DB_PATH, Buffer.from(data));
+  const data = Buffer.from(db.export());
+  const tmpPath = DB_PATH + '.tmp';
+  const fd = fs.openSync(tmpPath, 'w');
+  try {
+    fs.writeSync(fd, data);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmpPath, DB_PATH);
 }
 
 // ========== SQL Helpers ==========
@@ -587,7 +603,7 @@ function importBackup(filePath) {
   try {
     if (db) db.close();
     db = null;
-    fs.copyFileSync(filePath, DB_PATH);
+    replaceFile(filePath, DB_PATH);
     db = new SQL_INSTANCE.Database(fs.readFileSync(DB_PATH));
     createTables();
     ensureAdminUser();
@@ -598,7 +614,7 @@ function importBackup(filePath) {
     try {
       if (db) db.close();
       db = null;
-      fs.copyFileSync(emergencyPath, DB_PATH);
+      replaceFile(emergencyPath, DB_PATH);
       db = new SQL_INSTANCE.Database(fs.readFileSync(DB_PATH));
       console.error('  导入失败，已回滚到导入前的数据库');
     } catch (rollbackErr) {
