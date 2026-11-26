@@ -293,20 +293,21 @@ function seedDefaults() {
 
 function ensureAdminUser() {
   try {
-    const { hash, salt } = hashPassword('admin123');
-
     // 检查 admin 用户是否存在
     const adminUser = queryOne("SELECT id, username FROM users WHERE username = 'admin'");
     if (adminUser) {
-      // 强制重置密码和激活状态，确保默认凭据可用
-      runSql("UPDATE users SET password_hash = ?, salt = ?, active = 1, role = 'admin' WHERE username = 'admin'",
-        [hash, salt]);
-      console.log('  管理员密码已重置 (admin/admin123)');
+      // 已存在的账号只保证启用且为管理员；密码归使用者管理。
+      // 每次启动都重置回默认值，等于让局域网里任何人都能用 admin/admin123 进来改数据。
+      runSql("UPDATE users SET active = 1, role = 'admin' WHERE username = 'admin'", []);
+      if (authenticateUser('admin', 'admin123')) {
+        console.warn('  警告：管理员仍在使用默认密码 admin123，请登录后立即修改');
+      }
     } else {
-      // 创建新管理员
-      runSql("INSERT INTO users (username, password_hash, salt, display_name, role) VALUES (?, ?, ?, ?, ?)",
+      // 首次启动才创建默认管理员
+      const { hash, salt } = hashPassword('admin123');
+      runSql('INSERT INTO users (username, password_hash, salt, display_name, role) VALUES (?, ?, ?, ?, ?)',
         ['admin', hash, salt, '系统管理员', 'admin']);
-      console.log('  默认管理员已创建 (admin/admin123)');
+      console.log('  默认管理员已创建 (admin/admin123)，请首次登录后立即修改密码');
     }
   } catch (e) {
     console.error('  管理账号初始化失败:', e.message, e.stack);

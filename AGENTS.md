@@ -136,7 +136,7 @@ COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END
 
 - HMAC-SHA256 token（非标准 JWT），随机 secret，24 小时过期
 - 密码哈希：salt + SHA256
-- 默认管理员: `admin / admin123`（每次启动强制重置密码并激活）
+- 默认管理员: `admin / admin123`（仅在 admin 不存在时创建；已存在只保证启用与管理员角色，**密码不再被启动重置**，仍用默认值时启动日志会给出警告）
 - 角色: `admin` (管理员) 和 `user` (普通用户)
 - 用户软删除：`active = 0`（非物理删除），最后一位 admin 不可删除
 - 前端 token 存储在 `localStorage.auth_token`，挂载时通过 `/api/auth/me` 验证
