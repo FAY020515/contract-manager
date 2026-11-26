@@ -61,6 +61,7 @@ const deployPkg = {
   dependencies: {
     express: pkg.dependencies.express,
     cors: pkg.dependencies.cors,
+    multer: pkg.dependencies.multer,
     'sql.js': pkg.dependencies['sql.js'],
   },
 };
