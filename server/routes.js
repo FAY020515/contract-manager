@@ -627,6 +627,50 @@ function setupRoutes(app) {
     }
   });
 
+  // 列出某个目录里的备份单元（默认列出本机备份目录）
+  app.get('/api/backup/units', (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: '权限不足' });
+    try {
+      const result = db.listBackupUnits(req.query.dir);
+      if (result.error) return res.status(400).json({ error: result.error });
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // 把一份完整备份（台账+附件）直接写到指定目录，供插着 U 盘时带走
+  app.post('/api/backup/full-export', (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: '权限不足' });
+    try {
+      const result = db.exportFullBackupTo((req.body && req.body.destDir) || '');
+      if (result.success) {
+        res.json(result);
+      } else {
+        res.status(400).json(result);
+      }
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // 从备份单元一键恢复台账与附件
+  app.post('/api/backup/restore', (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: '权限不足' });
+    try {
+      const source = req.body && req.body.source;
+      if (!source) return res.status(400).json({ error: '未选择要恢复的备份' });
+      const result = db.restoreFromUnit(source);
+      if (result.success) {
+        res.json(result);
+      } else {
+        res.status(400).json(result);
+      }
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
   // ========== Health Check ==========
 
   app.get('/api/health', (req, res) => {

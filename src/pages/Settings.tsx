@@ -10,6 +10,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useAuth } from '../contexts/AuthContext';
+import type { BackupUnit } from '../types';
 
 const Settings: React.FC = () => {
   const { user } = useAuth();
@@ -33,6 +34,15 @@ const Settings: React.FC = () => {
   const [autoBackupSaving, setAutoBackupSaving] = useState(false);
   const [autoBackupTriggering, setAutoBackupTriggering] = useState(false);
 
+  // 一键恢复与完整备份
+  const [restoreDir, setRestoreDir] = useState('');
+  const [backupUnits, setBackupUnits] = useState<BackupUnit[]>([]);
+  const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
+  const [unitsLoading, setUnitsLoading] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [fullExportDir, setFullExportDir] = useState('');
+  const [fullExporting, setFullExporting] = useState(false);
+
   useEffect(() => {
     loadSettings();
   }, []);
@@ -54,6 +64,7 @@ const Settings: React.FC = () => {
         setAutoBackupLastTime(autoConfig.lastBackupTime);
         setAutoBackupLastError(autoConfig.lastError ?? null);
         setAutoBackupDefaultDir(autoConfig.defaultDir);
+        setRestoreDir(autoConfig.defaultDir);
       }
     } catch (e) {
       console.error(e);
@@ -180,6 +191,58 @@ const Settings: React.FC = () => {
   const useDefaultDir = () => {
     setAutoBackupDir(autoBackupDefaultDir);
     message.info('已填入默认备份目录，请保存');
+  };
+
+  const formatBytes = (n: number) => {
+    if (!n) return '0 B';
+    const mb = n / 1048576;
+    return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.round(n / 1024)} KB`;
+  };
+
+  const loadBackupUnits = async () => {
+    setUnitsLoading(true);
+    try {
+      const res = await window.api.listBackupUnits(restoreDir || undefined);
+      setBackupUnits(res.units || []);
+      setSelectedUnit(null);
+      if (!res.units || !res.units.length) message.info('该目录下没有找到备份');
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '读取备份列表失败');
+    }
+    setUnitsLoading(false);
+  };
+
+  const doRestore = async () => {
+    if (!selectedUnit) return;
+    setRestoring(true);
+    try {
+      const res = await window.api.restoreFromUnit(selectedUnit);
+      message.success(
+        res.uploadsRestored
+          ? '已恢复到该备份时刻：台账与合同附件一起回退'
+          : '台账已恢复；这份备份里没有附件，现有附件保持原样'
+      );
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '恢复失败');
+      setRestoring(false);
+    }
+  };
+
+  const doFullExport = async () => {
+    const dest = fullExportDir.trim();
+    if (!dest) {
+      message.warning('请先填写目标目录，例如 E:\\合同备份');
+      return;
+    }
+    setFullExporting(true);
+    try {
+      const res = await window.api.exportFullBackup(dest);
+      message.success(`完整备份已生成：${res.path}`);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '生成完整备份失败');
+    }
+    setFullExporting(false);
   };
 
   return (
@@ -451,6 +514,92 @@ const Settings: React.FC = () => {
                   立即备份一次
                 </Button>
               </Space>
+            </Form>
+          </Card>
+        </Col>
+        )}
+
+        {/* 一键回到某次备份 */}
+        {isAdmin && (
+        <Col xs={24} lg={12}>
+          <Card
+            title={
+              <Space>
+                <DatabaseOutlined />
+                <span>备份与恢复</span>
+              </Space>
+            }
+            loading={loading}
+          >
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="这里可以把系统直接回到某一次备份的样子：台账和合同附件一起恢复，不需要自己去找文件夹。恢复前会自动留存当前数据，误操作还能退回来。"
+            />
+
+            <Form layout="vertical">
+              <Form.Item
+                label="备份所在文件夹"
+                extra="默认是本机的 backups 目录；插着 U 盘时也可以填 U 盘上的备份文件夹路径"
+              >
+                <Space.Compact style={{ width: '100%' }}>
+                  <Input
+                    value={restoreDir}
+                    onChange={e => setRestoreDir(e.target.value)}
+                    placeholder={autoBackupDefaultDir}
+                  />
+                  <Button onClick={() => { setRestoreDir(autoBackupDefaultDir); }}>默认</Button>
+                  <Button icon={<SyncOutlined />} loading={unitsLoading} onClick={loadBackupUnits}>
+                    刷新列表
+                  </Button>
+                </Space.Compact>
+              </Form.Item>
+
+              <Form.Item label="可选的备份（按时间从新到旧）">
+                <Select
+                  value={selectedUnit}
+                  onChange={v => setSelectedUnit(v)}
+                  placeholder={backupUnits.length ? '请选择要恢复的备份' : '先点上方「刷新列表」'}
+                  style={{ width: '100%' }}
+                  options={backupUnits.map(u => ({
+                    value: u.path,
+                    label: `${dayjs(u.time).format('YYYY-MM-DD HH:mm:ss')} ｜ ${
+                      u.hasUploads ? `含 ${u.attachmentCount} 个附件（${formatBytes(u.uploadsBytes)}）` : '不含附件'
+                    } ｜ 台账 ${formatBytes(u.dbBytes)}`,
+                  }))}
+                />
+              </Form.Item>
+
+              <Popconfirm
+                title="确认回到这份备份？"
+                description="台账和合同附件都会变成该备份那一刻的样子，之后新加的数据将不在这套系统里（自动留存的当前数据仍可找回）。"
+                okText="确认恢复"
+                cancelText="取消"
+                onConfirm={doRestore}
+              >
+                <Button danger type="primary" block disabled={!selectedUnit} loading={restoring}>
+                  回到所选备份
+                </Button>
+              </Popconfirm>
+
+              <Divider />
+
+              <Form.Item
+                label="完整备份到指定目录（例如 U 盘）"
+                extra="填目标文件夹的绝对路径，程序会把台账和附件一起写成一个以时间命名的文件夹"
+              >
+                <Space.Compact style={{ width: '100%' }}>
+                  <Input
+                    value={fullExportDir}
+                    onChange={e => setFullExportDir(e.target.value)}
+                    placeholder="E:\合同备份"
+                  />
+                  <Button icon={<DownloadOutlined />} loading={fullExporting} onClick={doFullExport}>
+                    生成完整备份
+                  </Button>
+                </Space.Compact>
+              </Form.Item>
             </Form>
           </Card>
         </Col>

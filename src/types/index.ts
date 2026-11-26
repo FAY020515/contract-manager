@@ -99,6 +99,19 @@ export interface AppSettings {
   reminder_days: number[];
 }
 
+// 一份备份的概览：台账文件大小、是否含附件、附件数量与体积
+export interface BackupUnit {
+  name: string;
+  path: string;
+  time: string;
+  isFolder: boolean;
+  hasDatabase: boolean;
+  hasUploads: boolean;
+  attachmentCount: number;
+  uploadsBytes: number;
+  dbBytes: number;
+}
+
 declare global {
   interface Window {
     api: {
@@ -149,6 +162,9 @@ declare global {
         keepCount?: number;
       }) => Promise<{ success: boolean; config: any }>;
       triggerAutoBackup: () => Promise<{ success: boolean; path: string; time: string }>;
+      listBackupUnits: (dir?: string) => Promise<{ dir: string; units: BackupUnit[] }>;
+      exportFullBackup: (destDir: string) => Promise<{ success: boolean; path: string }>;
+      restoreFromUnit: (source: string) => Promise<{ success: boolean; restoreFile: string; uploadsRestored: boolean }>;
       openPath: (filePath: string) => Promise<void>;
       showNotification: (title: string, body: string) => Promise<void>;
     };

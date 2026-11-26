@@ -163,7 +163,7 @@ COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END
 
 **设置**: `GET /api/settings`, `GET/PUT /api/settings/:key`
 
-**备份** (admin only): `POST /api/backup/export`, `POST /api/backup/import`, `GET/PUT /api/backup/auto-config`, `POST /api/backup/auto-trigger`
+**备份** (admin only): `POST /api/backup/export`, `POST /api/backup/import`, `GET/PUT /api/backup/auto-config`, `POST /api/backup/auto-trigger`, `GET /api/backup/units`, `POST /api/backup/full-export`, `POST /api/backup/restore`
 
 ### 备份与恢复
 
@@ -172,6 +172,7 @@ COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END
 - 默认备份目录 `data/backups/`（`DEFAULT_BACKUP_DIR`），`backupDir` 留空即用默认。`backupDir` 由 `normalizeBackupDir()` 校验：必须是不含 `..` 的绝对路径，且不能等于数据库所在目录，否则记一条警告并回退默认目录；写入（`setAutoBackupConfig`）和读取（`getAutoBackupConfig`）两侧都会钳制。文件名带毫秒，避免同一秒内两次备份互相覆盖。
 - 轮转按前缀分别处理，一个"备份单元"可以是目录或以前的单文件：`auto_backup_*` 受用户配置的 `keepCount` 控制，`pre_import_*` 固定保留最近 5 份（`PRE_IMPORT_KEEP`）。`cleanOldBackups` 用 `rmSync(recursive)` 删除，两种形态都能清。
 - **附件本体不在数据库里。** 合同附件与收付款凭证的实际文件存在 `data/uploads/`，`attachments` 表与 `payments.attachment` 只记文件名/原名/大小，单靠一个 .db 恢复后附件栏会显示存在但打不开。因此 `performAutoBackup()` 走 `writeFullBackup()`，产物是一个 `auto_backup_<时间戳>/` 目录，内含 `contracts.db` 与 `uploads/` 副本；而 `POST /api/backup/export`（浏览器下载）仍是单个 .db，不含附件，界面上已分别写明。
+- **备份单元与一键恢复**：一份备份 = `auto_backup_<时间戳>/` 目录（内含 `contracts.db` 与 `uploads/`）。`listBackupUnits(dir)` 枚举备份单元并带出附件数量与体积；`restoreFromUnit(source)` 校验后同时回退台账与附件——**当前 uploads 里不在该备份中的文件会被删除**（用户确认过的语义：恢复=回到那个时点），删除前整个 uploads 与当前库会存进 `pre_restore_<时间戳>/`（`PRE_RESTORE_KEEP=3` 轮转），失败时库和附件一起回滚。早期单文件备份（`auto_backup_*.db`）仍可列出与恢复，但没有附件，此时附件目录保持不动并在返回值里以 `uploadsRestored:false` 标明。`exportFullBackupTo(dest)` 供"插 U 盘直接写一份"，目标目录不做轮转清理。三个接口都限 admin，路径都过 `normalizeBackupDir`。
 - `auto_backup` 配置另有 `lastError` 字段：`performAutoBackup()` 成功时清空、失败时写入原因，设置页用红色 Alert 显示"最近一次自动备份没有成功"。这一步很重要——备份目录指向 U 盘而盘没插时，定时任务原本只会写控制台日志，界面上无声无息。
 - **导入必须"先校验、再覆盖"**：`importBackup()` 先验证上传文件的 SQLite 头和 `contracts` 表，通过后先把当前库存成 `pre_import_*.db`，然后才覆盖 `contracts.db`，中途失败会回滚。原因：直接复制文件会在解析失败时把运行中的数据库变成无效文件，此时所有接口报 `file is not a database`，且 `initDatabase()` 重启也起不来，只能人工替换文件恢复。
 

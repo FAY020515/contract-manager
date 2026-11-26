@@ -3,6 +3,8 @@
  * 前端通过 REST API 与后端通信，支持浏览器直接访问
  */
 
+import type { BackupUnit } from '../types';
+
 const BASE = '/api';
 
 function getToken(): string | null {
@@ -259,6 +261,23 @@ export const api = {
     request<{ success: boolean; path: string; time: string }>('/backup/auto-trigger', {
       method: 'POST',
     }),
+
+  listBackupUnits: (dir?: string) =>
+    request<{ dir: string; units: BackupUnit[] }>(
+      `/backup/units${dir ? `?dir=${encodeURIComponent(dir)}` : ''}`
+    ),
+
+  exportFullBackup: (destDir: string) =>
+    request<{ success: boolean; path: string }>('/backup/full-export', {
+      method: 'POST',
+      body: JSON.stringify({ destDir }),
+    }),
+
+  restoreFromUnit: (source: string) =>
+    request<{ success: boolean; restoreFile: string; uploadsRestored: boolean }>(
+      '/backup/restore',
+      { method: 'POST', body: JSON.stringify({ source }) }
+    ),
 
   // ========== Attachments ==========
   getAttachments: (contractId: number) =>

@@ -577,19 +577,19 @@ function backupStamp() {
 
 const SQLITE_MAGIC = 'SQLite format 3\0';
 
-function importBackup(filePath) {
-  // 校验必须在触碰 DB_PATH 之前完成，无效文件不能破坏运行中的库
-  let incoming;
+// 校验一个备份文件是否是本系统可用的数据库；只读，不触碰运行中的库
+function validateBackupFile(filePath) {
+  let buf;
   try {
-    incoming = fs.readFileSync(filePath);
+    buf = fs.readFileSync(filePath);
   } catch (e) {
-    return { success: false, error: '无法读取上传文件：' + e.message };
+    return { ok: false, error: '无法读取文件：' + e.message };
   }
-  if (incoming.length < 16 || incoming.subarray(0, 16).toString('latin1') !== SQLITE_MAGIC) {
-    return { success: false, error: '文件不是有效的 SQLite 数据库，已取消导入' };
+  if (buf.length < 16 || buf.subarray(0, 16).toString('latin1') !== SQLITE_MAGIC) {
+    return { ok: false, error: '文件不是有效的 SQLite 数据库' };
   }
   try {
-    const probe = new SQL_INSTANCE.Database(incoming);
+    const probe = new SQL_INSTANCE.Database(buf);
     try {
       const rows = probe.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='contracts'");
       if (!rows.length || !rows[0].values.length) {
@@ -599,7 +599,33 @@ function importBackup(filePath) {
       probe.close();
     }
   } catch (e) {
-    return { success: false, error: '备份文件无法解析：' + e.message };
+    return { ok: false, error: '备份文件无法解析：' + e.message };
+  }
+  return { ok: true };
+}
+
+// 用指定文件替换运行中的库（调用方负责失败回滚）
+function swapDatabaseTo(sourceFile) {
+  if (db) db.close();
+  db = null;
+  replaceFile(sourceFile, DB_PATH);
+  db = new SQL_INSTANCE.Database(fs.readFileSync(DB_PATH));
+  createTables();
+  ensureAdminUser();
+  saveToDisk();
+}
+
+function reloadDatabaseFromDisk() {
+  if (db) db.close();
+  db = null;
+  db = new SQL_INSTANCE.Database(fs.readFileSync(DB_PATH));
+}
+
+function importBackup(filePath) {
+  // 校验必须早于任何写操作
+  const check = validateBackupFile(filePath);
+  if (!check.ok) {
+    return { success: false, error: check.error + '，已取消导入' };
   }
 
   // 覆盖当前库之前先留一份应急备份，导入中途失败可以回滚
@@ -617,21 +643,13 @@ function importBackup(filePath) {
   }
 
   try {
-    if (db) db.close();
-    db = null;
-    replaceFile(filePath, DB_PATH);
-    db = new SQL_INSTANCE.Database(fs.readFileSync(DB_PATH));
-    createTables();
-    ensureAdminUser();
-    saveToDisk();
+    swapDatabaseTo(filePath);
     console.log('  数据库已从备份恢复:', DB_PATH, '（导入前的库已存至:', emergencyPath, '）');
     return { success: true, restoreFile: emergencyPath };
   } catch (e) {
     try {
-      if (db) db.close();
-      db = null;
       replaceFile(emergencyPath, DB_PATH);
-      db = new SQL_INSTANCE.Database(fs.readFileSync(DB_PATH));
+      reloadDatabaseFromDisk();
       console.error('  导入失败，已回滚到导入前的数据库');
     } catch (rollbackErr) {
       console.error('  导入失败且回滚失败，请手动用', emergencyPath, '恢复:', rollbackErr.message);
@@ -742,6 +760,174 @@ function writeFullBackup(targetDir) {
     copyDirSync(uploadsDir, path.join(targetDir, 'uploads'));
   }
   return true;
+}
+
+// 恢复前留存的完整状态（库+附件），单独轮转
+const PRE_RESTORE_KEEP = 3;
+
+// 统计目录里的文件数与总字节，用于界面上说明一份备份里有多少附件
+function statTree(dir) {
+  let count = 0;
+  let bytes = 0;
+  const stack = [dir];
+  while (stack.length) {
+    const current = stack.pop();
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(full);
+      } else {
+        count++;
+        bytes += fs.statSync(full).size;
+      }
+    }
+  }
+  return { count, bytes };
+}
+
+// 列出某目录里的备份单元：目录形态（含附件）与早期单文件 .db 都能显示
+function listBackupUnits(rawDir) {
+  // 显式传目录时校验失败要报错，不能悄悄退回默认目录让人以为列表是全的
+  if (rawDir !== undefined && rawDir !== '') {
+    const checked = normalizeBackupDir(rawDir);
+    if (!checked) {
+      return { error: '目录不合法：请填不含 .. 的绝对路径（例如 U 盘的 E:\\合同备份）' };
+    }
+    rawDir = checked;
+  }
+  const dir = rawDir ? rawDir : DEFAULT_BACKUP_DIR;
+  if (!fs.existsSync(dir)) {
+    return { dir, units: [] };
+  }
+  const units = fs.readdirSync(dir)
+    .filter(f => f.startsWith('auto_backup_'))
+    .map(name => {
+      const fullPath = path.join(dir, name);
+      const stat = fs.statSync(fullPath);
+      const unit = {
+        name,
+        path: fullPath,
+        time: stat.mtime.toISOString(),
+        isFolder: stat.isDirectory(),
+        hasUploads: false,
+        attachmentCount: 0,
+        uploadsBytes: 0,
+        dbBytes: 0,
+        hasDatabase: false,
+      };
+      if (unit.isFolder) {
+        const dbFile = path.join(fullPath, 'contracts.db');
+        unit.hasDatabase = fs.existsSync(dbFile);
+        if (unit.hasDatabase) unit.dbBytes = fs.statSync(dbFile).size;
+        const uploadsDir = path.join(fullPath, 'uploads');
+        if (fs.existsSync(uploadsDir)) {
+          unit.hasUploads = true;
+          const tree = statTree(uploadsDir);
+          unit.attachmentCount = tree.count;
+          unit.uploadsBytes = tree.bytes;
+        }
+      } else if (name.endsWith('.db')) {
+        unit.hasDatabase = true;
+        unit.dbBytes = stat.size;
+      }
+      return unit;
+    })
+    .filter(u => u.hasDatabase)
+    .sort((a, b) => new Date(b.time) - new Date(a.time));
+  return { dir, units };
+}
+
+// 把一份完整备份直接写到指定目录（插着 U 盘时一键带走，不做轮转）
+function exportFullBackupTo(rawDest) {
+  const dest = normalizeBackupDir(rawDest);
+  if (!dest) {
+    return { success: false, error: '目标目录不合法：请填不含 .. 的绝对路径（例如 U 盘的 E:\\合同备份）' };
+  }
+  const unitDir = path.join(dest, `auto_backup_${backupStamp()}`);
+  try {
+    if (!fs.existsSync(dest)) {
+      fs.mkdirSync(dest, { recursive: true });
+    }
+    if (!writeFullBackup(unitDir)) {
+      fs.rmSync(unitDir, { recursive: true, force: true });
+      return { success: false, error: '导出失败：数据库尚未就绪' };
+    }
+    console.log('  完整备份已写出:', unitDir);
+    return { success: true, path: unitDir };
+  } catch (e) {
+    fs.rmSync(unitDir, { recursive: true, force: true });
+    return { success: false, error: '导出失败：' + e.message };
+  }
+}
+
+// 用备份里的 uploads 整体替换当前附件目录
+function replaceUploadsFrom(sourceUploads) {
+  const live = getUploadsDir();
+  if (fs.existsSync(live)) {
+    fs.rmSync(live, { recursive: true, force: true });
+  }
+  if (fs.existsSync(sourceUploads)) {
+    copyDirSync(sourceUploads, live);
+  } else {
+    fs.mkdirSync(live, { recursive: true });
+  }
+}
+
+// 从备份单元（目录或早期 .db 文件）一键恢复台账与附件
+function restoreFromUnit(rawSource) {
+  const source = normalizeBackupDir(rawSource);
+  if (!source) {
+    return { success: false, error: '备份路径不合法：请填不含 .. 的绝对路径' };
+  }
+  if (!fs.existsSync(source)) {
+    return { success: false, error: '找不到该备份：' + source };
+  }
+  const isFile = fs.statSync(source).isFile();
+  const srcDb = isFile ? source : path.join(source, 'contracts.db');
+  if (!fs.existsSync(srcDb)) {
+    return { success: false, error: '所选备份里没有 contracts.db' };
+  }
+  const check = validateBackupFile(srcDb);
+  if (!check.ok) {
+    return { success: false, error: '恢复已取消：' + check.error };
+  }
+  const srcUploads = isFile ? null : path.join(source, 'uploads');
+  const willRestoreUploads = !!(srcUploads && fs.existsSync(srcUploads));
+
+  // 先把当前状态整份留存，恢复出问题时能原样退回
+  const safetyDir = path.join(DEFAULT_BACKUP_DIR, `pre_restore_${backupStamp()}`);
+  try {
+    saveNow();
+    fs.mkdirSync(safetyDir, { recursive: true });
+    fs.copyFileSync(DB_PATH, path.join(safetyDir, 'contracts.db'));
+    if (fs.existsSync(getUploadsDir())) {
+      copyDirSync(getUploadsDir(), path.join(safetyDir, 'uploads'));
+    }
+  } catch (e) {
+    return { success: false, error: '恢复前留存当前数据失败，已取消恢复：' + e.message };
+  }
+
+  try {
+    swapDatabaseTo(srcDb);
+    if (willRestoreUploads) {
+      replaceUploadsFrom(srcUploads);
+    }
+    cleanOldBackups(DEFAULT_BACKUP_DIR, PRE_RESTORE_KEEP, 'pre_restore_');
+    console.log('  已从备份恢复:', source, willRestoreUploads ? '（含附件）' : '（该备份不含附件，现有附件保持不变）', '恢复前状态:', safetyDir);
+    return { success: true, restoreFile: safetyDir, uploadsRestored: willRestoreUploads, source };
+  } catch (e) {
+    try {
+      replaceFile(path.join(safetyDir, 'contracts.db'), DB_PATH);
+      reloadDatabaseFromDisk();
+      if (willRestoreUploads) {
+        replaceUploadsFrom(path.join(safetyDir, 'uploads'));
+      }
+      console.error('  恢复失败，已回滚到恢复前的数据');
+    } catch (rollbackErr) {
+      console.error('  恢复失败且回滚失败，请用', safetyDir, '手工还原:', rollbackErr.message);
+    }
+    return { success: false, error: '恢复失败：' + e.message };
+  }
 }
 
 function performAutoBackup() {
@@ -1050,5 +1236,8 @@ module.exports = {
   setAutoBackupConfig,
   performAutoBackup,
   shouldAutoBackupNow,
+  listBackupUnits,
+  exportFullBackupTo,
+  restoreFromUnit,
   DEFAULT_BACKUP_DIR,
 };
