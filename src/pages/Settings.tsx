@@ -32,11 +32,6 @@ const Settings: React.FC = () => {
   const [autoBackupSaving, setAutoBackupSaving] = useState(false);
   const [autoBackupTriggering, setAutoBackupTriggering] = useState(false);
 
-  // 检测是否在 Electron 桌面环境中运行
-  const isElectron = () =>
-    typeof navigator !== 'undefined' &&
-    navigator.userAgent.toLowerCase().includes('electron');
-
   useEffect(() => {
     loadSettings();
   }, []);
@@ -124,23 +119,9 @@ const Settings: React.FC = () => {
     }
   };
 
-  const handleImport = async () => {
-    try {
-      if (isElectron()) {
-        // Electron 桌面模式：使用原生文件对话框
-        const result = await window.api.importBackup();
-        if (result) {
-          message.success('备份导入成功，请重启应用');
-        } else {
-          message.error('备份导入失败');
-        }
-      } else {
-        // Web 模式：触发隐藏的文件选择器
-        fileInputRef.current?.click();
-      }
-    } catch (e) {
-      message.error('操作失败');
-    }
+  // window.api 恒为 HTTP 客户端（main.tsx 覆盖），桌面与浏览器统一走文件选择器
+  const handleImport = () => {
+    fileInputRef.current?.click();
   };
 
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -341,7 +322,7 @@ const Settings: React.FC = () => {
                 </Button>
               </Popconfirm>
             </Space>
-            {/* Web 模式下使用的隐藏文件选择器 */}
+            {/* 隐藏文件选择器，桌面与浏览器模式共用 */}
             <input
               ref={fileInputRef}
               type="file"

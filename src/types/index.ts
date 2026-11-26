@@ -132,7 +132,7 @@ declare global {
       setSetting: (key: string, value: any) => Promise<boolean>;
       getAllSettings: () => Promise<AppSettings>;
       exportBackup: () => Promise<boolean>;
-      importBackup: (file?: File) => Promise<boolean>;
+      importBackup: (file: File) => Promise<boolean>;
       getAutoBackupConfig: () => Promise<{
         enabled: boolean;
         backupDir: string;

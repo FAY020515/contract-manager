@@ -579,6 +579,7 @@ function importBackup(filePath) {
     }
     emergencyPath = path.join(DEFAULT_BACKUP_DIR, `pre_import_${backupStamp()}.db`);
     fs.copyFileSync(DB_PATH, emergencyPath);
+    cleanOldBackups(DEFAULT_BACKUP_DIR, PRE_IMPORT_KEEP, 'pre_import_');
   } catch (e) {
     return { success: false, error: '导入前备份失败，已取消导入：' + e.message };
   }
@@ -614,6 +615,8 @@ function getDbPath() {
 // ========== Auto Backup ==========
 
 const DEFAULT_BACKUP_DIR = path.join(DB_DIR, 'backups');
+// 导入前的应急备份固定留在默认目录，单独轮转，不受用户配置的保留份数影响
+const PRE_IMPORT_KEEP = 5;
 
 function getAutoBackupConfig() {
   const row = queryOne('SELECT value FROM settings WHERE key = ?', ['auto_backup']);
@@ -683,7 +686,7 @@ function performAutoBackup() {
     // 更新上次备份时间
     setAutoBackupConfig({ lastBackupTime: now.toISOString() });
     // 清理旧备份
-    cleanOldBackups(backupDir, config.keepCount);
+    cleanOldBackups(backupDir, config.keepCount, 'auto_backup_');
     console.log(`  自动备份完成: ${backupPath}`);
     return { success: true, path: backupPath, time: now.toISOString() };
   } catch (e) {
@@ -692,10 +695,10 @@ function performAutoBackup() {
   }
 }
 
-function cleanOldBackups(backupDir, keepCount) {
+function cleanOldBackups(backupDir, keepCount, prefix) {
   try {
     const files = fs.readdirSync(backupDir)
-      .filter(f => f.startsWith('auto_backup_') && f.endsWith('.db'))
+      .filter(f => f.startsWith(prefix) && f.endsWith('.db'))
       .map(f => ({ name: f, path: path.join(backupDir, f), mtime: fs.statSync(path.join(backupDir, f)).mtime }))
       .sort((a, b) => b.mtime - a.mtime);
     if (files.length > keepCount) {
