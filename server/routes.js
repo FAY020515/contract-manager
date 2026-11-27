@@ -31,14 +31,18 @@ function setupRoutes(app) {
 
   // ========== Auth Middleware ==========
   // 公开路由不需要鉴权（路径相对于 /api 挂载点）
-  // 附件预览/下载需要公开，因为浏览器打开新标签页不会带 Authorization 头
   const PUBLIC_EXACT = ['/auth/login', '/health'];
-  const PUBLIC_PREFIX = ['/auth/login/', '/health/', '/attachments/'];
+  const PUBLIC_PREFIX = ['/auth/login/', '/health/'];
+  // 附件预览与下载由浏览器直接打开链接，不会带 Authorization 头，因此只放行只读方法。
+  // 改之前整段 /attachments/ 免鉴权，导致任何人不带令牌就能 DELETE 删除附件。
+  const PUBLIC_READ_PREFIX = ['/attachments/'];
 
   app.use('/api', (req, res, next) => {
+    const readonly = req.method === 'GET' || req.method === 'HEAD';
     // 放行公开路由
     const isPublic = PUBLIC_EXACT.includes(req.path) ||
-      PUBLIC_PREFIX.some(p => req.path.startsWith(p));
+      PUBLIC_PREFIX.some(p => req.path.startsWith(p)) ||
+      (readonly && PUBLIC_READ_PREFIX.some(p => req.path.startsWith(p)));
     if (isPublic) {
       return next();
     }

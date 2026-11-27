@@ -26,10 +26,14 @@ const distPath = path.join(__dirname, '../dist');
 app.use(express.static(distPath));
 
 // SPA fallback - any non-API route returns index.html
-app.get('*', (req, res) => {
-  if (!req.path.startsWith('/api')) {
-    res.sendFile(path.join(distPath, 'index.html'));
-  }
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api')) return next();
+  res.sendFile(path.join(distPath, 'index.html'));
+});
+
+// 未匹配的 /api 路径必须显式返回 404，否则请求会一直悬着不响应
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: '接口不存在：' + req.method + ' ' + req.originalUrl });
 });
 
 async function start() {

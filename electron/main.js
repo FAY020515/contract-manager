@@ -80,10 +80,14 @@ async function startServer() {
   log(`dist 目录存在: ${fs.existsSync(distPath)}`);
 
   serverApp.use(express.static(distPath));
-  serverApp.get('*', (req, res) => {
-    if (!req.path.startsWith('/api')) {
-      res.sendFile(path.join(distPath, 'index.html'));
-    }
+  serverApp.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+
+  // 未匹配的 /api 路径显式 404，否则请求会一直悬着不响应（与 server/index.js 保持一致）
+  serverApp.use('/api', (req, res) => {
+    res.status(404).json({ error: '接口不存在：' + req.method + ' ' + req.originalUrl });
   });
 
   // 启动服务，自动寻找可用端口
