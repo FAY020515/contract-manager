@@ -18,6 +18,8 @@ export interface Contract {
   created_at: string;
   updated_at: string;
   occurred_amount?: number;
+  last_operator?: string | null;
+  last_updated_at?: string | null;
 }
 
 export type ContractStatus = '草稿' | '执行中' | '已到期' | '已终止' | '已续签';

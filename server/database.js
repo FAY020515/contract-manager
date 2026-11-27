@@ -340,7 +340,9 @@ function getContracts(filters = {}) {
   const total = queryOne(`SELECT COUNT(*) as count FROM contracts c WHERE ${where}`, params)?.count || 0;
   const data = queryAll(
     `SELECT c.*, 
-       COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END), 0) as occurred_amount
+       COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END), 0) as occurred_amount,
+       (SELECT l.operator FROM contract_logs l WHERE l.contract_id = c.id ORDER BY l.created_at DESC, l.id DESC LIMIT 1) as last_operator,
+       (SELECT l.created_at FROM contract_logs l WHERE l.contract_id = c.id ORDER BY l.created_at DESC, l.id DESC LIMIT 1) as last_updated_at
      FROM contracts c
      LEFT JOIN payments p ON c.id = p.contract_id
      WHERE ${where}
@@ -373,8 +375,7 @@ function createContract(c, operator) {
   const contractId = row ? row.id : 0;
 
   // Log
-  runSql('INSERT INTO contract_logs (contract_id, action, detail, operator) VALUES (?, ?, ?, ?)',
-    [contractId, '创建', '创建合同', operator || c.person_in_charge || '系统']);
+  addContractLog(contractId, '创建', `创建合同：${c.title}（${fmtMoney(c.amount || 0)} 元）`, operator || c.person_in_charge);
 
   // Auto-create expiry reminder
   if (c.end_date) {
@@ -393,6 +394,7 @@ function createContract(c, operator) {
 }
 
 function updateContract(id, c, operator) {
+  const before = getContractById(id) || {};
   runSql(`
     UPDATE contracts SET contract_no=?, title=?, type=?, party_a=?, party_b=?, amount=?, currency=?,
       sign_date=?, start_date=?, end_date=?, status=?, department=?, person_in_charge=?,
@@ -406,8 +408,12 @@ function updateContract(id, c, operator) {
     c.description || null, c.file_path || null, id
   ]);
 
+  // 记录改动的是哪些字段、从什么改成了什么，避免审计时只看到一句"更新合同信息"
+  const after = getContractById(id) || {};
+  const changes = diffFields(before, after, CONTRACT_FIELD_LABELS);
+  const detail = changes.length ? changes.join('；') : '保存合同（未检测到字段变化）';
   runSql('INSERT INTO contract_logs (contract_id, action, detail, operator) VALUES (?, ?, ?, ?)',
-    [id, '更新', '更新合同信息', operator || c.person_in_charge || '系统']);
+    [id, '更新', detail, operator || c.person_in_charge || '系统']);
 
   // 同步更新提醒的日期和内容（排除已忽略的）
   if (c.end_date) {
@@ -467,7 +473,8 @@ function updateReminderStatus(id, status) {
 // ========== Logs ==========
 
 function getLogsByContract(contractId) {
-  return queryAll('SELECT * FROM contract_logs WHERE contract_id = ? ORDER BY created_at DESC', [contractId]);
+  // 同一秒内的多条记录按 id 倒序，保证最新的一条稳定排在最前
+  return queryAll('SELECT * FROM contract_logs WHERE contract_id = ? ORDER BY created_at DESC, id DESC', [contractId]);
 }
 
 // ========== Statistics ==========
@@ -1027,6 +1034,51 @@ function addContractLog(contractId, action, detail, operator) {
     [contractId, action, detail, operator || '系统']);
 }
 
+// 需要留痕的合同字段与其中文名
+const CONTRACT_FIELD_LABELS = {
+  contract_no: '合同编号',
+  title: '合同名称',
+  type: '合同类型',
+  party_a: '甲方',
+  party_b: '乙方',
+  amount: '合同金额',
+  sign_date: '签订日期',
+  start_date: '开始日期',
+  end_date: '到期日期',
+  status: '状态',
+  department: '部门',
+  person_in_charge: '负责人',
+  description: '备注',
+};
+
+function fmtMoney(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toLocaleString('zh-CN') : String(v);
+}
+
+function fmtFieldValue(field, v) {
+  if (v === null || v === undefined || v === '') return '（空）';
+  if (field === 'amount') return fmtMoney(v) + ' 元';
+  return String(v);
+}
+
+// 对比修改前后的关键字段，产出"金额：8,000 元 → 9,000 元"这样的差异列表
+function diffFields(before, after, labels) {
+  const parts = [];
+  for (const field of Object.keys(labels)) {
+    const a = before[field] === null || before[field] === undefined ? '' : String(before[field]);
+    const b = after[field] === null || after[field] === undefined ? '' : String(after[field]);
+    if (a !== b) {
+      parts.push(`${labels[field]}：${fmtFieldValue(field, before[field])} → ${fmtFieldValue(field, after[field])}`);
+    }
+  }
+  return parts;
+}
+
+function paymentText(p) {
+  return `${p.type} ${fmtMoney(p.amount)} 元（${p.status}）`;
+}
+
 function deleteAttachment(id, operator) {
   const att = queryOne('SELECT * FROM attachments WHERE id = ?', [id]);
   runSql('DELETE FROM attachments WHERE id = ?', [id]);
@@ -1066,7 +1118,7 @@ function getPaymentById(id) {
   return queryOne('SELECT * FROM payments WHERE id = ?', [id]);
 }
 
-function createPayment(contractId, p) {
+function createPayment(contractId, p, operator) {
   runSql(`
     INSERT INTO payments (contract_id, type, amount, payment_date, status, description, attachment)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1075,10 +1127,14 @@ function createPayment(contractId, p) {
     p.status || '已付', p.description || null, p.attachment || null
   ]);
   const row = queryOne('SELECT last_insert_rowid() as id');
-  return row ? row.id : 0;
+  const id = row ? row.id : 0;
+  addContractLog(contractId, '新增',
+    `新增收付款：${paymentText({ type: p.type || '支出', amount: p.amount || 0, status: p.status || '已付' })}`,
+    operator);
+  return id;
 }
 
-function updatePayment(id, p) {
+function updatePayment(id, p, operator) {
   const existing = getPaymentById(id);
   if (!existing) return;
   
@@ -1096,10 +1152,22 @@ function updatePayment(id, p) {
     UPDATE payments SET type=?, amount=?, payment_date=?, status=?, description=?, attachment=?, attachment_name=?
     WHERE id=?
   `, [merged.type, merged.amount, merged.payment_date, merged.status, merged.description || null, merged.attachment || null, merged.attachment_name || null, id]);
+
+  // 只记业务字段的变化；上传/删除凭证有各自的日志，避免重复刷屏
+  const changes = diffFields(existing, merged, {
+    type: '类型', amount: '金额', payment_date: '日期', status: '状态', description: '说明',
+  });
+  if (changes.length) {
+    addContractLog(existing.contract_id, '更新', `修改收付款：${changes.join('；')}`, operator);
+  }
 }
 
-function deletePayment(id) {
+function deletePayment(id, operator) {
+  const existing = getPaymentById(id);
   runSql('DELETE FROM payments WHERE id = ?', [id]);
+  if (existing) {
+    addContractLog(existing.contract_id, '删除', `删除收付款：${paymentText(existing)}`, operator);
+  }
 }
 
 function getPaymentSummary(contractId) {

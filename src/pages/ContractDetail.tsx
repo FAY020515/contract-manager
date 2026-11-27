@@ -228,6 +228,7 @@ const ContractDetail: React.FC = () => {
       paymentForm.resetFields();
       setPaymentAttachmentFile(null);
       await loadPayments();
+      await refreshLogs();
     } catch (e: any) {
       if (e.errorFields) return; // form validation error
       console.error(e);
@@ -240,6 +241,7 @@ const ContractDetail: React.FC = () => {
       await window.api.deletePayment(paymentId);
       message.success('记录已删除');
       await loadPayments();
+      await refreshLogs();
     } catch (e) {
       console.error(e);
       message.error('删除失败');
@@ -314,16 +316,18 @@ const ContractDetail: React.FC = () => {
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleOpenPaymentModal(record)}>
             编辑
           </Button>
-          <Popconfirm
-            title="确认删除此记录？"
-            onConfirm={() => handleDeletePayment(record.id)}
-            okText="确认"
-            cancelText="取消"
-          >
-            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-              删除
-            </Button>
-          </Popconfirm>
+          {isAdmin && (
+            <Popconfirm
+              title="确认删除此记录？"
+              onConfirm={() => handleDeletePayment(record.id)}
+              okText="确认"
+              cancelText="取消"
+            >
+              <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+                删除
+              </Button>
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
@@ -627,8 +631,13 @@ const ContractDetail: React.FC = () => {
       <Card title="操作记录" style={{ marginTop: 16 }}>
         <Timeline
           items={logs.map(log => ({
-            color: log.action === '创建' ? 'green' : log.action === '更新' ? 'blue' : 'gray',
-            dot: log.action === '创建' ? <CheckCircleOutlined /> : <ClockCircleOutlined />,
+            color: log.action === '删除' ? 'red'
+              : (log.action === '创建' || log.action === '新增') ? 'green'
+              : (log.action === '更新' || log.action === '更换' || log.action === '上传') ? 'blue'
+              : 'gray',
+            dot: log.action === '删除' ? <DeleteOutlined />
+              : (log.action === '创建' || log.action === '新增') ? <CheckCircleOutlined />
+              : <ClockCircleOutlined />,
             children: (
               <div>
                 <div>

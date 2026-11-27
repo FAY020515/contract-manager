@@ -385,7 +385,7 @@ function setupRoutes(app) {
   app.post('/api/contracts/:id/payments', (req, res) => {
     try {
       const contractId = Number(req.params.id);
-      const id = db.createPayment(contractId, req.body);
+      const id = db.createPayment(contractId, req.body, req.user.display_name || req.user.username);
       res.json({ id });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -395,17 +395,18 @@ function setupRoutes(app) {
   // 更新收付款记录
   app.put('/api/payments/:id', (req, res) => {
     try {
-      db.updatePayment(Number(req.params.id), req.body);
+      db.updatePayment(Number(req.params.id), req.body, req.user.display_name || req.user.username);
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
   });
 
-  // 删除收付款记录
+  // 删除收付款记录（会改动金额与已发生额，仅管理员）
   app.delete('/api/payments/:id', (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: '权限不足：删除收付款记录需要管理员权限' });
     try {
-      db.deletePayment(Number(req.params.id));
+      db.deletePayment(Number(req.params.id), req.user.display_name || req.user.username);
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: e.message });

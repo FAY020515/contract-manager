@@ -4,7 +4,7 @@ This file provides guidance to Qoder (qoder.com) when working with code in this 
 
 ## 项目概述
 
-合同管理系统 v2.2.0 - 用于企业合同全生命周期管理的桌面/Web 应用，支持合同录入、收付款管理、到期提醒、统计分析、附件管理、Excel 导入导出、列配置（筛选/排序）、数据库自动备份与导入恢复等功能。
+合同管理系统 v2.3.0 - 用于企业合同全生命周期管理的桌面/Web 应用，支持合同录入、收付款管理、到期提醒、统计分析、附件管理、Excel 导入导出、列配置（筛选/排序）、数据库自动备份与导入恢复等功能。
 
 ## 技术栈
 
@@ -207,7 +207,7 @@ COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END
 - 统计查询使用 SQLite 的 `strftime` 函数处理日期聚合
 - 中文文件名上传需 `Buffer.from(file.originalname, 'latin1').toString('utf8')` 修正编码
 - 提醒状态规则：合同更新 → 重置为 pending；合同终止/到期 → processed
-- 写 `contract_logs` 统一走 `addContractLog(contractId, action, detail, operator)`（`server/database.js`）：`action` 用短动词（现有为 `创建` / `更新` / `上传` / `更换` / `删除`），`detail` 写中文说明，`operator` 一律取令牌里的登录者（`req.user.display_name || req.user.username`），不要用请求体自报的名字。已覆盖：合同创建/更新、合同附件上传与删除、收付款凭证上传/更换/删除。前端在 `ContractDetail.tsx` 的 `refreshLogs()` 里同步刷新时间线，不要只刷附件列表。
+- 写 `contract_logs` 统一走 `addContractLog(contractId, action, detail, operator)`（`server/database.js`）：`action` 用短动词（现有为 `创建` / `更新` / `上传` / `更换` / `删除` / `新增`），`detail` 写中文说明，`operator` 一律取令牌里的登录者（`req.user.display_name || req.user.username`），不要用请求体自报的名字。已覆盖：合同创建/更新、合同附件上传与删除、收付款记录新增/修改/删除、收付款凭证上传/更换/删除。**合同更新必须写字段级差异**（`diffFields()` + `CONTRACT_FIELD_LABELS`，格式如「合同金额：8,000 元 → 9,000 元」，多条用「；」连接）；收付款更新只记业务字段、不记凭证字段，避免与凭证日志重复。`getLogsByContract` 按 `created_at DESC, id DESC` 排序，否则同一秒内的多条记录顺序不定。前端在 `ContractDetail.tsx` 的 `refreshLogs()` 里同步刷新时间线。
 - 鉴权白名单分两类：`PUBLIC_PREFIX` 完全公开（登录、健康检查），`PUBLIC_READ_PREFIX`（`/attachments/`）**只放行 GET/HEAD**，因为预览与下载是浏览器直接打开链接、不带令牌；删除附件必须登录。新增附件类写接口不要放进只读白名单。
 - 未匹配的 `/api` 路径必须由 `app.use('/api', 404)` 兜底返回 JSON，不能像早期那样在 SPA 回退里对 `/api` 直接 return——那样请求永远不响应，连接一直悬着（`server/index.js` 与 `electron/main.js` 两处写法要保持一致）。
 - 限定管理员的接口在 handler 首行写 `if (req.user.role !== 'admin') return res.status(403).json({ error: '权限不足' })`（鉴权中间件只保证已登录，不区分角色）；前端对应入口用 `useAuth()` 的 `user?.role === 'admin'` 控制显隐，避免普通用户触发 403

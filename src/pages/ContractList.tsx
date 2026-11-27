@@ -54,6 +54,8 @@ const ContractList: React.FC = () => {
     { key: 'status', title: '状态', defaultVisible: true },
     { key: 'person_in_charge', title: '负责人', defaultVisible: true },
     { key: 'attachment_count', title: '附件', defaultVisible: true },
+    { key: 'last_operator', title: '最后修改人', defaultVisible: false },
+    { key: 'last_updated_at', title: '最后修改时间', defaultVisible: false },
   ];
   
   const [columnConfig, setColumnConfig] = useState<{ visible: string[]; order: string[] }>(() => {
@@ -305,6 +307,19 @@ const ContractList: React.FC = () => {
         ) : (
           '-'
         ),
+    },
+    last_operator: {
+      title: '最后修改人',
+      dataIndex: 'last_operator',
+      width: 100,
+      ellipsis: true,
+      render: (v: string) => v || '-',
+    },
+    last_updated_at: {
+      title: '最后修改时间',
+      dataIndex: 'last_updated_at',
+      width: 150,
+      render: (v: string) => v || '-',
     },
   };
 
