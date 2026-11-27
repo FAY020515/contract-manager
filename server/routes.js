@@ -29,6 +29,59 @@ const upload = multer({
 
 function setupRoutes(app) {
 
+  // 把数据库的英文约束错误翻成人话
+  function translateContractError(e, contractNo) {
+    const msg = String((e && e.message) || '');
+    if (msg.includes('UNIQUE constraint failed: contracts.contract_no')) {
+      return `合同编号${contractNo ? `「${contractNo}」` : ''}已存在，请换一个`;
+    }
+    return msg;
+  }
+
+  // 校验合同的基础字段：名称必填、金额必须是负数以外的数字
+  function validateContractInput(body) {
+    if (!body || !String(body.title || '').trim()) return '合同名称不能为空';
+    if (body.amount !== undefined && body.amount !== null && body.amount !== '') {
+      const n = Number(body.amount);
+      if (!Number.isFinite(n)) return '合同金额必须是数字';
+      if (n < 0) return '合同金额不能为负数';
+    }
+    return null;
+  }
+
+  // Excel 导入的日期容错：支持 2026-01-05、2026/1/5、Excel 日期序列号、带时间的 ISO 串
+  function normalizeDateValue(v) {
+    if (v === null || v === undefined || v === '') return null;
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      if (v > 20000 && v < 80000) {
+        const d = new Date(Math.round((v - 25569) * 86400000));
+        return d.toISOString().slice(0, 10);
+      }
+      return null;
+    }
+    const s = String(v).trim();
+    if (!s) return null;
+    const m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+    if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+    const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})T/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+    return null;
+  }
+
+  // 金额容错：允许千分位、货币符号与"元"字；无法识别时返回 null
+  function parseAmountValue(v) {
+    if (v === null || v === undefined || v === '') return 0;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    const cleaned = String(v).replace(/[,，\s¥￥元]/g, '');
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
+  }
+
   // ========== Auth Middleware ==========
   // 公开路由不需要鉴权（路径相对于 /api 挂载点）
   const PUBLIC_EXACT = ['/auth/login', '/health'];
@@ -187,8 +240,40 @@ function setupRoutes(app) {
       const results = { success: 0, failed: 0, errors: [] };
 
       for (let i = 0; i < contracts.length; i++) {
+        const rowNo = i + 2; // Excel 行号（第一行是表头）
         try {
           const row = contracts[i];
+          // 金额：允许千分位、"元"等写法；识别不了就明确报这一行
+          const rawAmount = row['合同金额'] !== undefined ? row['合同金额'] : row.amount;
+          const amount = parseAmountValue(rawAmount);
+          if (amount === null) {
+            results.errors.push({ row: rowNo, error: `合同金额无法识别：${rawAmount}` });
+            results.failed++;
+            continue;
+          }
+          if (amount < 0) {
+            results.errors.push({ row: rowNo, error: '合同金额不能为负数' });
+            results.failed++;
+            continue;
+          }
+          // 日期：兼容 Excel 日期单元格与 2026/1/5 这类写法
+          const dates = {};
+          let dateError = null;
+          for (const [cn, en] of [['签订日期', 'sign_date'], ['生效日期', 'start_date'], ['到期日期', 'end_date']]) {
+            const raw = row[cn] !== undefined ? row[cn] : row[en];
+            const normalized = normalizeDateValue(raw);
+            if (raw !== undefined && raw !== null && raw !== '' && normalized === null) {
+              dateError = `${cn}格式无法识别：${raw}`;
+              break;
+            }
+            dates[en] = normalized;
+          }
+          if (dateError) {
+            results.errors.push({ row: rowNo, error: dateError });
+            results.failed++;
+            continue;
+          }
+
           // 字段映射：中文名 → 数据库字段
           const contract = {
             contract_no: row['合同编号'] || row.contract_no || null,
@@ -196,19 +281,19 @@ function setupRoutes(app) {
             type: row['合同类型'] || row.type || '其他',
             party_a: row['甲方'] || row.party_a || null,
             party_b: row['乙方'] || row.party_b || null,
-            amount: parseFloat(row['合同金额'] || row.amount) || 0,
+            amount,
             currency: row['币种'] || row.currency || 'CNY',
-            sign_date: row['签订日期'] || row.sign_date || null,
-            start_date: row['生效日期'] || row.start_date || null,
-            end_date: row['到期日期'] || row.end_date || null,
+            sign_date: dates.sign_date,
+            start_date: dates.start_date,
+            end_date: dates.end_date,
             status: row['状态'] || row.status || '草稿',
             department: row['所属部门'] || row.department || null,
             person_in_charge: row['负责人'] || row.person_in_charge || null,
             description: row['合同摘要'] || row.description || null,
           };
 
-          if (!contract.title) {
-            results.errors.push({ row: i + 2, error: '合同名称不能为空' });
+          if (!String(contract.title || '').trim()) {
+            results.errors.push({ row: rowNo, error: '合同名称不能为空' });
             results.failed++;
             continue;
           }
@@ -216,7 +301,7 @@ function setupRoutes(app) {
           db.createContract(contract, req.user.display_name || req.user.username);
           results.success++;
         } catch (e) {
-          results.errors.push({ row: i + 2, error: e.message });
+          results.errors.push({ row: rowNo, error: translateContractError(e, contracts[i] && (contracts[i]['合同编号'] || contracts[i].contract_no)) });
           results.failed++;
         }
       }
@@ -229,21 +314,29 @@ function setupRoutes(app) {
 
   app.post('/api/contracts', (req, res) => {
     try {
+      const invalid = validateContractInput(req.body);
+      if (invalid) return res.status(400).json({ error: invalid });
       const operator = req.user.display_name || req.user.username;
       const contract = db.createContract(req.body, operator);
       res.json(contract);
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      const friendly = translateContractError(e, req.body && req.body.contract_no);
+      const status = friendly !== (e && e.message) ? 400 : 500;
+      res.status(status).json({ error: friendly });
     }
   });
 
   app.put('/api/contracts/:id', (req, res) => {
     try {
+      const invalid = validateContractInput(req.body);
+      if (invalid) return res.status(400).json({ error: invalid });
       const operator = req.user.display_name || req.user.username;
       db.updateContract(Number(req.params.id), req.body, operator);
       res.json({ success: true });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      const friendly = translateContractError(e, req.body && req.body.contract_no);
+      const status = friendly !== (e && e.message) ? 400 : 500;
+      res.status(status).json({ error: friendly });
     }
   });
 

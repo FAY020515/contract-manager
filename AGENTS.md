@@ -4,7 +4,7 @@ This file provides guidance to Qoder (qoder.com) when working with code in this 
 
 ## 项目概述
 
-合同管理系统 v2.3.0 - 用于企业合同全生命周期管理的桌面/Web 应用，支持合同录入、收付款管理、到期提醒、统计分析、附件管理、Excel 导入导出、列配置（筛选/排序）、数据库自动备份与导入恢复等功能。
+合同管理系统 v2.4.0 - 用于企业合同全生命周期管理的桌面/Web 应用，支持合同录入、收付款管理、到期提醒、统计分析、附件管理、Excel 导入导出、列配置（筛选/排序）、数据库自动备份与导入恢复等功能。
 
 ## 技术栈
 
@@ -206,6 +206,8 @@ COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END
 - 收付款类型: `'收入' | '支出'`，状态: `'待收' | '待付' | '已收' | '已付'`
 - 统计查询使用 SQLite 的 `strftime` 函数处理日期聚合
 - 中文文件名上传需 `Buffer.from(file.originalname, 'latin1').toString('utf8')` 修正编码
+- Excel 导入：前端用 `xlsx` 解析后把行数组 POST 给 `/api/contracts/import`，服务端按中文表头映射（`合同编号/合同名称/合同类型/甲方/乙方/合同金额/币种/签订日期/生效日期/到期日期/状态/所属部门/负责人/合同摘要`）。**CSV 的中文表头编码不固定**，`ContractList.handleImportFile` 先按 UTF-8（codepage 65001）读，表头认不出再按 GBK（936）读一次；表头缺少「合同名称」时直接提示，不再逐行报错。日期经 `normalizeDateValue()` 兼容 Excel 序列号与 `2026/1/5`，金额经 `parseAmountValue()` 兼容千分位与"元"。重复编号由 `translateContractError()` 转成中文提示（手动新建、编辑、导入三条路径共用）。
+
 - 提醒状态规则：合同更新 → 重置为 pending；合同终止/到期 → processed
 - 写 `contract_logs` 统一走 `addContractLog(contractId, action, detail, operator)`（`server/database.js`）：`action` 用短动词（现有为 `创建` / `更新` / `上传` / `更换` / `删除` / `新增`），`detail` 写中文说明，`operator` 一律取令牌里的登录者（`req.user.display_name || req.user.username`），不要用请求体自报的名字。已覆盖：合同创建/更新、合同附件上传与删除、收付款记录新增/修改/删除、收付款凭证上传/更换/删除。**合同更新必须写字段级差异**（`diffFields()` + `CONTRACT_FIELD_LABELS`，格式如「合同金额：8,000 元 → 9,000 元」，多条用「；」连接）；收付款更新只记业务字段、不记凭证字段，避免与凭证日志重复。`getLogsByContract` 按 `created_at DESC, id DESC` 排序，否则同一秒内的多条记录顺序不定。前端在 `ContractDetail.tsx` 的 `refreshLogs()` 里同步刷新时间线。
 - 鉴权白名单分两类：`PUBLIC_PREFIX` 完全公开（登录、健康检查），`PUBLIC_READ_PREFIX`（`/attachments/`）**只放行 GET/HEAD**，因为预览与下载是浏览器直接打开链接、不带令牌；删除附件必须登录。新增附件类写接口不要放进只读白名单。

@@ -168,11 +168,29 @@ const ContractList: React.FC = () => {
   const handleImportFile = async (file: File) => {
     try {
       const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data);
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet);
+      const readSheet = (codepage: number) => {
+        const wb = XLSX.read(data, { codepage });
+        return XLSX.utils.sheet_to_json<Record<string, any>>(wb.Sheets[wb.SheetNames[0]]);
+      };
+      const hasKeyHeaders = (rows: Record<string, any>[]) =>
+        rows.length > 0 && ['合同名称', 'title', '合同编号', 'contract_no'].some(k => k in (rows[0] || {}));
+
+      // CSV 的中文表头编码不固定：Excel 另存可能是 GBK，其他来源多是 UTF-8。
+      // 先按 UTF-8 读，表头认不出来再按 GBK 读一次（对 .xlsx 无影响）。
+      let rows = readSheet(65001);
+      if (!hasKeyHeaders(rows)) {
+        const gbkRows = readSheet(936);
+        if (hasKeyHeaders(gbkRows)) rows = gbkRows;
+      }
+
       if (rows.length === 0) {
         message.warning('Excel 文件中没有数据');
+        return false;
+      }
+      // 表头对不上时直接说清楚，避免每一行都报"合同名称不能为空"
+      const first = rows[0] || {};
+      if (!('合同名称' in first) && !('title' in first)) {
+        message.error('未找到「合同名称」列：请检查表头，或点下方「下载导入模板」参照填写');
         return false;
       }
       setImportPreview(rows);
@@ -206,11 +224,27 @@ const ContractList: React.FC = () => {
 
   const handleDownloadTemplate = async () => {
     const headers = ['合同编号', '合同名称', '合同类型', '甲方', '乙方', '合同金额', '币种', '签订日期', '生效日期', '到期日期', '状态', '所属部门', '负责人', '合同摘要'];
-    const example = ['HT-2024-001', '示例采购合同', '采购', 'XX公司', 'YY公司', 100000, 'CNY', '2024-01-01', '2024-01-15', '2025-01-14', '执行中', '采购部', '张三', '办公设备采购'];
-    const ws = XLSX.utils.aoa_to_sheet([headers, example]);
-    ws['!cols'] = headers.map(() => ({ wch: 15 }));
+    const example1 = ['HT-2026-001', '示例：办公设备采购合同', '采购', '甲公司', '乙公司', 8000, 'CNY', '2026-01-05', '2026-01-10', '2027-01-04', '执行中', '采购部', '张三', '示例行，导入前请删除或改写'];
+    const example2 = ['HT-2026-002', '示例：年度审计服务合同', '服务', '丙公司', '', 12000, 'CNY', '2026-02-01', '', '2027-01-31', '草稿', '财务审计部', '李四', ''];
+    const ws = XLSX.utils.aoa_to_sheet([headers, example1, example2]);
+    ws['!cols'] = headers.map(() => ({ wch: 16 }));
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '合同导入模板');
+    XLSX.utils.book_append_sheet(wb, ws, '合同');
+
+    const notes = [
+      ['填写说明'],
+      ['1. 表头不要改名；「合同名称」列必须保留，其余列可以留空或整列删除。'],
+      ['2. 合同名称必填；合同编号不能重复，留空表示不填编号。'],
+      ['3. 日期写成 2026-01-05 或 2026/1/5 都行，Excel 日期格式也能识别。'],
+      ['4. 金额只填数字，可带千分位和"元"（如 8,000 元），不要写"约8000"或负数。'],
+      ['5. 合同类型与状态若填写，请与「系统设置」里的名称一致（例如 采购 / 执行中）。'],
+      ['6. 示例两行导入前请删除或改写，否则会作为真实合同导入。'],
+      ['7. 导入完成后界面会逐行列出失败原因，按提示改好再导一次即可。'],
+    ];
+    const wsNotes = XLSX.utils.aoa_to_sheet(notes);
+    wsNotes['!cols'] = [{ wch: 80 }];
+    XLSX.utils.book_append_sheet(wb, wsNotes, '填写说明');
+
     XLSX.writeFile(wb, '合同导入模板.xlsx');
   };
 
