@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Row, Col, Card, Statistic, List, Tag, Spin } from 'antd';
+import { Row, Col, Card, Statistic, List, Tag, Spin, Alert, Button } from 'antd';
 import {
   FileTextOutlined,
   PlusCircleOutlined,
@@ -9,19 +9,25 @@ import {
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { useNavigate } from 'react-router-dom';
+import dayjs from 'dayjs';
 import type { DashboardStats, StatItem, Reminder } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [typeStats, setTypeStats] = useState<StatItem[]>([]);
   const [trendStats, setTrendStats] = useState<StatItem[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [backupLastTime, setBackupLastTime] = useState<string | null>(null);
+  const [backupLoaded, setBackupLoaded] = useState(false);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [user?.role]);
 
   const loadData = async () => {
     setLoading(true);
@@ -36,6 +42,14 @@ const Dashboard: React.FC = () => {
       setTypeStats(t);
       setTrendStats(tr);
       setReminders(r);
+      // 备份状态只有管理员能看，用于首页提醒
+      if (user?.role === 'admin') {
+        try {
+          const cfg = await window.api.getAutoBackupConfig();
+          setBackupLastTime(cfg.lastBackupTime ?? null);
+        } catch (_) { /* 读不到就不提示 */ }
+        setBackupLoaded(true);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -95,8 +109,43 @@ const Dashboard: React.FC = () => {
     return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>;
   }
 
+  const backupDays = backupLastTime ? dayjs().diff(dayjs(backupLastTime), 'day') : null;
+
   return (
     <div>
+      {user?.usingDefaultPassword && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="当前账号仍在使用默认密码 admin123"
+          description={isAdmin
+            ? '局域网内任何人都能以此登录并查看、修改合同数据，请尽快修改密码。'
+            : '请尽快联系管理员修改你的密码。'}
+          action={isAdmin ? <Button size="small" onClick={() => navigate('/users')}>去修改</Button> : undefined}
+        />
+      )}
+      {isAdmin && backupLoaded && (
+        backupLastTime === null ? (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="还没有做过任何备份"
+            description="插上 U 盘后到「系统设置 → 备份与恢复」生成一份完整备份，这决定出事时能不能回来。"
+            action={<Button size="small" onClick={() => navigate('/settings')}>去设置</Button>}
+          />
+        ) : (backupDays !== null && backupDays >= 7) ? (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={`最近一次备份是 ${backupDays} 天前`}
+            description="建议插上 U 盘做一次完整备份，并确认自动备份仍在正常执行。"
+            action={<Button size="small" onClick={() => navigate('/settings')}>去看看</Button>}
+          />
+        ) : null
+      )}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
           <Card hoverable onClick={() => navigate('/contracts')}>

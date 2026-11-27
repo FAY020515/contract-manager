@@ -129,14 +129,14 @@ function setupRoutes(app) {
         return res.status(401).json({ error: '用户名或密码错误' });
       }
       const token = db.generateToken(user);
-      res.json({ token, user });
+      res.json({ token, user: { ...user, usingDefaultPassword: db.isUsingDefaultPassword(user.username) } });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
   });
 
   app.get('/api/auth/me', (req, res) => {
-    res.json({ user: req.user });
+    res.json({ user: { ...req.user, usingDefaultPassword: db.isUsingDefaultPassword(req.user.username) } });
   });
 
   // ========== User Management (Admin Only) ==========

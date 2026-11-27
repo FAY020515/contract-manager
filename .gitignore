@@ -1,6 +1,7 @@
 node_modules/
 dist/
 out/
+*.tsbuildinfo
 release/
 release2/
 deploy/

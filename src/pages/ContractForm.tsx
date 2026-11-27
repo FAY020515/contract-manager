@@ -73,7 +73,7 @@ const ContractForm: React.FC = () => {
         // 上传附件（如果有选择文件）
         const files = fileList
           .map(f => f.originFileObj)
-          .filter((f): f is File => !!f);
+          .filter((f): f is NonNullable<typeof f> => !!f);
 
         if (files.length > 0) {
           try {

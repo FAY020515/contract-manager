@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
   Card, Form, Input, Button, Space, Tag, message, Divider,
-  Popconfirm, Row, Col, Alert, InputNumber, Switch, Select, Spin,
+  Popconfirm, Row, Col, Alert, InputNumber, Switch, Select, Spin, Modal,
 } from 'antd';
 import {
   PlusOutlined, DeleteOutlined, SaveOutlined,
@@ -217,12 +217,16 @@ const Settings: React.FC = () => {
     setRestoring(true);
     try {
       const res = await window.api.restoreFromUnit(selectedUnit);
-      message.success(
-        res.uploadsRestored
-          ? '已恢复到该备份时刻：台账与合同附件一起回退'
-          : '台账已恢复；这份备份里没有附件，现有附件保持原样'
-      );
-      setTimeout(() => window.location.reload(), 1500);
+      const unit = backupUnits.find(u => u.path === selectedUnit);
+      const when = unit ? dayjs(unit.time).format('YYYY-MM-DD HH:mm:ss') : '所选时间点';
+      Modal.success({
+        title: '已恢复到所选备份',
+        content: res.uploadsRestored
+          ? `台账与合同附件都已回到 ${when} 的状态。恢复前的数据已自动留存，需要时可在备份目录的 pre_restore_ 文件夹里找回。`
+          : `台账已恢复到 ${when}。这份备份不含附件，现有附件未被改动。`,
+        okText: '刷新页面',
+        onOk: () => window.location.reload(),
+      });
     } catch (e) {
       message.error(e instanceof Error ? e.message : '恢复失败');
       setRestoring(false);
@@ -476,14 +480,23 @@ const Settings: React.FC = () => {
                 />
               </Form.Item>
 
-              {autoBackupLastTime && (
-                <div style={{ marginBottom: 16, padding: '8px 12px', background: '#f5f5f5', borderRadius: 4 }}>
-                  <span style={{ color: '#666' }}>上次备份时间：</span>
-                  <span style={{ fontWeight: 500 }}>
-                    {dayjs(autoBackupLastTime).format('YYYY-MM-DD HH:mm:ss')}
-                  </span>
-                </div>
-              )}
+              {(() => {
+                const days = autoBackupLastTime ? dayjs().diff(dayjs(autoBackupLastTime), 'day') : null;
+                const color = autoBackupLastTime === null ? '#999' : (days !== null && days >= 7 ? '#fa8c16' : '#52c41a');
+                return (
+                  <div style={{ marginBottom: 16, padding: '8px 12px', background: '#f5f5f5', borderRadius: 4 }}>
+                    <span style={{ color: '#666' }}>最近一次备份：</span>
+                    <span style={{ fontWeight: 500, color }}>
+                      {autoBackupLastTime
+                        ? `${days} 天前（${dayjs(autoBackupLastTime).format('YYYY-MM-DD HH:mm:ss')}）`
+                        : '尚未备份'}
+                    </span>
+                    {autoBackupLastTime !== null && days !== null && days >= 7 && (
+                      <span style={{ marginLeft: 8, color: '#fa8c16' }}>建议尽快做一次备份</span>
+                    )}
+                  </div>
+                );
+              })()}
 
               {autoBackupLastError && (
                 <Alert

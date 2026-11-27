@@ -4,7 +4,7 @@ This file provides guidance to Qoder (qoder.com) when working with code in this 
 
 ## 项目概述
 
-合同管理系统 v2.4.0 - 用于企业合同全生命周期管理的桌面/Web 应用，支持合同录入、收付款管理、到期提醒、统计分析、附件管理、Excel 导入导出、列配置（筛选/排序）、数据库自动备份与导入恢复等功能。
+合同管理系统 v2.5.0 - 用于企业合同全生命周期管理的桌面/Web 应用，支持合同录入、收付款管理、到期提醒、统计分析、附件管理、Excel 导入导出、列配置（筛选/排序）、数据库自动备份与导入恢复等功能。
 
 ## 技术栈
 
@@ -214,5 +214,5 @@ COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END
 - 未匹配的 `/api` 路径必须由 `app.use('/api', 404)` 兜底返回 JSON，不能像早期那样在 SPA 回退里对 `/api` 直接 return——那样请求永远不响应，连接一直悬着（`server/index.js` 与 `electron/main.js` 两处写法要保持一致）。
 - 限定管理员的接口在 handler 首行写 `if (req.user.role !== 'admin') return res.status(403).json({ error: '权限不足' })`（鉴权中间件只保证已登录，不区分角色）；前端对应入口用 `useAuth()` 的 `user?.role === 'admin'` 控制显隐，避免普通用户触发 403
 - 破坏性操作（覆盖数据库文件、批量删除）必须先校验输入再动目标，并留下可回滚的副本；错误响应要区分"未做改动"和"已改动但失败"
-- 提交前至少跑 `npx tsc --noEmit -p tsconfig.json` 和 `npm run build`；涉及备份/导入这类改数据库的功能，另用一份独立的 `data/` 目录起服务实测，不要拿真实库试
+- 提交前至少跑 `npx tsc -b`（根 `tsconfig.json` 是引用壳，**必须用 `-b`**；直接 `tsc -p tsconfig.json` 什么都不检查，此前因此漏过"用了未导入的 Modal"这类错误）和 `npm run build`；涉及备份/导入这类改数据库的功能，另用一份独立的 `data/` 目录起服务实测，不要拿真实库试
 - 覆盖 `contracts.db` 只能走 `saveToDisk()` 或 `replaceFile()`（同目录临时文件 + `renameSync`）。不要直接 `fs.writeFileSync(DB_PATH, ...)`：`server/index.js` 每个请求结束都会存盘，截断式写入一旦碰上进程被杀或断电，库里就只剩半个甚至 0 字节，症状与无效导入相同且日常使用就会撞上

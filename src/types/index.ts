@@ -119,9 +119,15 @@ declare global {
     api: {
       getContracts: (filters?: any) => Promise<{ data: Contract[]; total: number }>;
       getContractById: (id: number) => Promise<Contract | null>;
-      createContract: (contract: Partial<Contract>) => Promise<number>;
+      createContract: (contract: Partial<Contract>) => Promise<Contract>;
       updateContract: (id: number, contract: Partial<Contract>) => Promise<boolean>;
       deleteContract: (id: number, confirmNo: string) => Promise<boolean>;
+      importContracts: (contracts: any[]) => Promise<{ success: number; failed: number; errors: { row: number; error: string }[] }>;
+      getCurrentUser: () => Promise<any>;
+      getUsers: () => Promise<any[]>;
+      createUser: (data: { username: string; password: string; display_name: string; role: string; department: string }) => Promise<{ id: number }>;
+      updateUser: (id: number, data: Partial<{ username: string; display_name: string; role: string; department: string; password: string }>) => Promise<{ success: boolean }>;
+      deleteUser: (id: number) => Promise<{ success: boolean }>;
       getReminders: (filters?: any) => Promise<Reminder[]>;
       getUpcomingReminders: (days: number) => Promise<Reminder[]>;
       updateReminderStatus: (id: number, status: string) => Promise<boolean>;

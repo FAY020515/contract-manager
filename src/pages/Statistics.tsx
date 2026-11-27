@@ -295,7 +295,7 @@ const Statistics: React.FC = () => {
     { title: '金额', dataIndex: 'amount', key: 'amount', width: 120,
       render: (v: number) => v != null ? `¥${Number(v).toLocaleString()}` : '-' },
     { title: '状态', dataIndex: 'status', key: 'status', width: 90,
-      render: (s: string) => <Tag color={STATUS_COLORS[s] || 'default'}>{s}</Tag> },
+      render: (s: string) => <Tag color={(STATUS_COLORS as Record<string, string>)[s] || 'default'}>{s}</Tag> },
     { title: '部门', dataIndex: 'department', key: 'department', width: 100 },
     { title: '负责人', dataIndex: 'person_in_charge', key: 'person_in_charge', width: 90 },
     { title: '到期日', dataIndex: 'end_date', key: 'end_date', width: 110 },

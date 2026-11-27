@@ -6,6 +6,7 @@ interface User {
   display_name: string;
   role: string;
   department: string;
+  usingDefaultPassword?: boolean;
 }
 
 interface AuthContextType {

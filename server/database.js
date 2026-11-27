@@ -1206,6 +1206,13 @@ function getUserByUsername(username) {
   return queryOne('SELECT * FROM users WHERE username = ? AND active = 1', [username]);
 }
 
+// 供界面提示"仍在使用默认密码"，不泄漏哈希
+function isUsingDefaultPassword(username) {
+  const u = getUserByUsername(username);
+  if (!u) return false;
+  return verifyPassword('admin123', u.password_hash, u.salt);
+}
+
 function getUserById(id) {
   const user = queryOne('SELECT * FROM users WHERE id = ?', [id]);
   if (user) { delete user.password_hash; delete user.salt; }
@@ -1313,7 +1320,7 @@ module.exports = {
   deleteAttachmentsByContract, getAttachmentCountByContract,
   getPaymentsByContract, getPaymentById, createPayment, updatePayment, deletePayment, getPaymentSummary,
   authenticateUser, generateToken, verifyToken,
-  getUserById, getAllUsers, createUser, updateUser, deleteUser, countActiveAdmins,
+  getUserById, getAllUsers, createUser, updateUser, deleteUser, countActiveAdmins, isUsingDefaultPassword,
   exportBackup,
   importBackup,
   getAutoBackupConfig,

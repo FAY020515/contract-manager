@@ -27,3 +27,4 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   shortcutName: 合同管理系统
+  include: installer.nsh
