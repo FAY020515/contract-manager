@@ -23,14 +23,34 @@ const ContractForm: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [types, setTypes] = useState<string[]>([]);
   const [departments, setDepartments] = useState<string[]>([]);
+  const [companies, setCompanies] = useState<{ name: string; abbr: string }[]>([]);
+  const [numberTouched, setNumberTouched] = useState(false);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
 
   useEffect(() => {
     window.api.getAllSettings().then(s => {
       setTypes(s.contract_types || []);
       setDepartments(s.departments || []);
+      const comps = Array.isArray(s.companies) ? s.companies : [];
+      setCompanies(comps);
+      // 新建且只维护了一家公司时，直接带出该公司与推荐编号
+      if (!isEdit && comps.length === 1) {
+        form.setFieldsValue({ company: comps[0].name });
+        window.api.getNextContractNo(comps[0].name)
+          .then(r => form.setFieldsValue({ contract_no: r.contract_no }))
+          .catch(() => {});
+      }
     });
-  }, []);
+  }, [form, isEdit]);
+
+  // 选了主体公司且编号没被手工改过 → 自动带出该前缀的下一个编号
+  const handleCompanyChange = async (company?: string) => {
+    if (isEdit || numberTouched || !company) return;
+    try {
+      const r = await window.api.getNextContractNo(company);
+      form.setFieldsValue({ contract_no: r.contract_no });
+    } catch (_) { /* 拿不到就让用户自己填 */ }
+  };
 
   useEffect(() => {
     if (isEdit) {
@@ -125,14 +145,30 @@ const ContractForm: React.FC = () => {
         <Row gutter={24}>
           <Col span={8}>
             <Form.Item
+              label="主体公司"
+              name="company"
+              rules={[{ required: !isEdit, message: '请选择合同所属主体公司' }]}
+            >
+              <Select
+                placeholder="请选择所属主体公司"
+                allowClear
+                onChange={handleCompanyChange}
+                options={companies.map(c => ({ value: c.name, label: `${c.name}（${c.abbr}）` }))}
+                notFoundContent="请先在「系统设置 → 公司管理」中添加主体公司"
+              />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item
               label="合同编号"
               name="contract_no"
               rules={[{ required: true, message: '请输入合同编号' }]}
+              extra="选择主体公司后自动带出，可手动修改"
             >
-              <Input placeholder="如：HT-2024-001" />
+              <Input placeholder="如：CY-2026-0001" onChange={() => setNumberTouched(true)} />
             </Form.Item>
           </Col>
-          <Col span={16}>
+          <Col span={8}>
             <Form.Item
               label="合同名称"
               name="title"

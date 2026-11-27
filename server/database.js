@@ -290,6 +290,7 @@ function createTables() {
   ensureColumn('contracts', 'approval_status', "TEXT DEFAULT '未审批'");
   ensureColumn('contracts', 'approval_by', 'TEXT');
   ensureColumn('contracts', 'approval_at', 'TEXT');
+  ensureColumn('contracts', 'company', 'TEXT');
   ensureColumn('attachments', 'category', "TEXT DEFAULT 'contract'");
 }
 
@@ -342,6 +343,7 @@ function getContracts(filters = {}) {
   if (filters.type) { where += ' AND c.type = ?'; params.push(filters.type); }
   if (filters.status) { where += ' AND c.status = ?'; params.push(filters.status); }
   if (filters.department) { where += ' AND c.department = ?'; params.push(filters.department); }
+  if (filters.company) { where += ' AND c.company = ?'; params.push(filters.company); }
   if (filters.startDate) { where += ' AND c.sign_date >= ?'; params.push(filters.startDate); }
   if (filters.endDate) { where += ' AND c.sign_date <= ?'; params.push(filters.endDate); }
   if (filters.amountMin !== undefined && filters.amountMin !== '') { where += ' AND c.amount >= ?'; params.push(Number(filters.amountMin)); }
@@ -375,18 +377,21 @@ function getContractById(id) {
 function createContract(c, operator) {
   runSql(`
     INSERT INTO contracts (contract_no, title, type, party_a, party_b, amount, currency,
-      sign_date, start_date, end_date, status, department, person_in_charge, description, file_path)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      sign_date, start_date, end_date, status, department, person_in_charge, description, file_path, company)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     c.contract_no || null, c.title, c.type || '其他', c.party_a || null, c.party_b || null,
     c.amount || 0, c.currency || 'CNY',
     c.sign_date || null, c.start_date || null, c.end_date || null,
     c.status || '草稿', c.department || null, c.person_in_charge || null,
-    c.description || null, c.file_path || null
+    c.description || null, c.file_path || null, c.company || null
   ]);
 
   const row = queryOne('SELECT last_insert_rowid() as id');
   const contractId = row ? row.id : 0;
+
+  // 记住该前缀用过的最大流水号，保证作废号不被复用
+  bumpContractSeq(c.contract_no);
 
   // Log
   addContractLog(contractId, '创建', `创建合同：${c.title}（${fmtMoney(c.amount || 0)} 元）`, operator || c.person_in_charge);
@@ -412,15 +417,18 @@ function updateContract(id, c, operator) {
   runSql(`
     UPDATE contracts SET contract_no=?, title=?, type=?, party_a=?, party_b=?, amount=?, currency=?,
       sign_date=?, start_date=?, end_date=?, status=?, department=?, person_in_charge=?,
-      description=?, file_path=?, updated_at=datetime('now','localtime')
+      description=?, file_path=?, company=?, updated_at=datetime('now','localtime')
     WHERE id=?
   `, [
     c.contract_no || null, c.title, c.type, c.party_a || null, c.party_b || null,
     c.amount || 0, c.currency || 'CNY',
     c.sign_date || null, c.start_date || null, c.end_date || null,
     c.status, c.department || null, c.person_in_charge || null,
-    c.description || null, c.file_path || null, id
+    c.description || null, c.file_path || null, c.company || null, id
   ]);
+
+  // 编号若被手工改成新号，同样推进流水计数，保证作废号不复用
+  bumpContractSeq(c.contract_no);
 
   // 记录改动的是哪些字段、从什么改成了什么，避免审计时只看到一句"更新合同信息"
   const after = getContractById(id) || {};
@@ -468,6 +476,54 @@ function setApprovalStatus(id, status, operator) {
     [status, operator || '系统', id]);
   addContractLog(id, '审批', `审批状态：${from} → ${status}`, operator);
   return { ok: true };
+}
+
+// ========== 主体公司与合同编号 ==========
+
+function getCompanies() {
+  const value = getSetting('companies');
+  return Array.isArray(value) ? value : [];
+}
+
+// 记住某"缩写-年份"用过的最大流水，保证作废号不被复用
+function bumpContractSeq(contractNo) {
+  const m = String(contractNo || '').match(/^([A-Za-z0-9]+)-(\d{4})-(\d+)$/);
+  if (!m) return;
+  const key = `${m[1].toUpperCase()}-${m[2]}`;
+  const n = Number(m[3]);
+  if (!Number.isFinite(n)) return;
+  const seqMap = getSetting('contract_seq');
+  const map = (seqMap && typeof seqMap === 'object') ? { ...seqMap } : {};
+  if ((Number(map[key]) || 0) < n) {
+    map[key] = n;
+    setSetting('contract_seq', map);
+  }
+}
+
+// 依据选定主体的缩写与当年已用最大号，推荐下一个编号（缩写-年份-四位流水）
+function nextContractNo(companyName) {
+  const comp = getCompanies().find(c => c.name === companyName);
+  const abbr = (comp && comp.abbr ? String(comp.abbr) : 'HT').toUpperCase().replace(/[^A-Z0-9]/g, '') || 'HT';
+  const year = new Date().getFullYear();
+  const seqKey = `${abbr}-${year}`;
+  const seqMap = getSetting('contract_seq');
+  const stored = (seqMap && Number(seqMap[seqKey])) || 0;
+
+  const rows = queryAll('SELECT contract_no FROM contracts WHERE contract_no LIKE ?', [`${abbr}-${year}-%`]);
+  const re = new RegExp(`^${abbr}-${year}-(\\d+)$`);
+  let maxExisting = 0;
+  for (const r of rows) {
+    const m = String(r.contract_no || '').match(re);
+    if (m) maxExisting = Math.max(maxExisting, Number(m[1]));
+  }
+
+  const next = Math.max(stored, maxExisting) + 1;
+  return {
+    contract_no: `${abbr}-${year}-${String(next).padStart(4, '0')}`,
+    abbr,
+    year,
+    sequence: next,
+  };
 }
 
 // ========== Reminders ==========
@@ -1072,6 +1128,7 @@ const CONTRACT_FIELD_LABELS = {
   contract_no: '合同编号',
   title: '合同名称',
   type: '合同类型',
+  company: '主体公司',
   party_a: '甲方',
   party_b: '乙方',
   amount: '合同金额',
@@ -1138,7 +1195,8 @@ function deleteAttachmentsByContract(contractId) {
 }
 
 function getAttachmentCountByContract(contractId) {
-  const row = queryOne('SELECT COUNT(*) as count FROM attachments WHERE contract_id = ?', [contractId]);
+  // 附件数只统计合同附件，审批单单独展示
+  const row = queryOne("SELECT COUNT(*) as count FROM attachments WHERE contract_id = ? AND category != 'approval'", [contractId]);
   return row ? row.count : 0;
 }
 
@@ -1347,6 +1405,7 @@ module.exports = {
   initDatabase, getDbPath, getUploadsDir, saveNow,
   getContracts, getContractById, createContract, updateContract, deleteContract,
   setApprovalStatus, APPROVAL_STATUSES,
+  nextContractNo, getCompanies,
   getReminders, getUpcomingReminders, updateReminderStatus,
   getLogsByContract,
   getDashboardStats, getStatsByType, getStatsByDepartment, getMonthlyTrend, getAmountDistribution,

@@ -105,6 +105,11 @@ export const api = {
       body: JSON.stringify({ status }),
     }),
 
+  getNextContractNo: (company?: string) =>
+    request<{ contract_no: string; abbr: string; year: number; sequence: number }>(
+      `/contracts/next-number${company ? `?company=${encodeURIComponent(company)}` : ''}`
+    ),
+
   importContracts: (contracts: any[]) =>
     request<{ success: number; failed: number; errors: { row: number; error: string }[] }>('/contracts/import', {
       method: 'POST',

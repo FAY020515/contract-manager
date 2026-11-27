@@ -33,10 +33,12 @@ const ContractList: React.FC = () => {
     type?: string;
     status?: string;
     department?: string;
+    company?: string;
     dateRange?: [string, string];
   }>({});
   const [types, setTypes] = useState<string[]>([]);
   const [departments, setDepartments] = useState<string[]>([]);
+  const [companies, setCompanies] = useState<{ name: string; abbr: string }[]>([]);
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [importPreview, setImportPreview] = useState<any[] | null>(null);
   const [importing, setImporting] = useState(false);
@@ -47,6 +49,7 @@ const ContractList: React.FC = () => {
     { key: 'contract_no', title: '合同编号', defaultVisible: true },
     { key: 'title', title: '合同名称', defaultVisible: true },
     { key: 'type', title: '类型', defaultVisible: true },
+    { key: 'company', title: '主体公司', defaultVisible: true },
     { key: 'party_a', title: '甲方', defaultVisible: true },
     { key: 'amount', title: '金额', defaultVisible: true },
     { key: 'occurred_amount', title: '已发生', defaultVisible: true },
@@ -105,6 +108,7 @@ const ContractList: React.FC = () => {
     window.api.getAllSettings().then(s => {
       setTypes(s.contract_types || []);
       setDepartments(s.departments || []);
+      setCompanies(Array.isArray(s.companies) ? s.companies : []);
     });
   }, []);
 
@@ -138,6 +142,7 @@ const ContractList: React.FC = () => {
         '合同编号': c.contract_no,
         '合同名称': c.title,
         '类型': c.type,
+        '所属公司': c.company || '',
         '甲方': c.party_a,
         '乙方': c.party_b,
         '金额': c.amount,
@@ -163,7 +168,7 @@ const ContractList: React.FC = () => {
     '合同编号': 'contract_no', '合同名称': 'title', '合同类型': 'type',
     '甲方': 'party_a', '乙方': 'party_b', '合同金额': 'amount',
     '币种': 'currency', '签订日期': 'sign_date', '生效日期': 'start_date',
-    '到期日期': 'end_date', '状态': 'status', '所属部门': 'department',
+    '到期日期': 'end_date', '状态': 'status', '所属部门': 'department', '所属公司': 'company',
     '负责人': 'person_in_charge', '合同摘要': 'description',
   };
 
@@ -225,9 +230,10 @@ const ContractList: React.FC = () => {
   };
 
   const handleDownloadTemplate = async () => {
-    const headers = ['合同编号', '合同名称', '合同类型', '甲方', '乙方', '合同金额', '币种', '签订日期', '生效日期', '到期日期', '状态', '所属部门', '负责人', '合同摘要'];
-    const example1 = ['HT-2026-001', '示例：办公设备采购合同', '采购', '甲公司', '乙公司', 8000, 'CNY', '2026-01-05', '2026-01-10', '2027-01-04', '执行中', '采购部', '张三', '示例行，导入前请删除或改写'];
-    const example2 = ['HT-2026-002', '示例：年度审计服务合同', '服务', '丙公司', '', 12000, 'CNY', '2026-02-01', '', '2027-01-31', '草稿', '财务审计部', '李四', ''];
+    const sampleCompany = companies.length ? companies[0].name : '示例公司';
+    const headers = ['合同编号', '合同名称', '合同类型', '所属公司', '甲方', '乙方', '合同金额', '币种', '签订日期', '生效日期', '到期日期', '状态', '所属部门', '负责人', '合同摘要'];
+    const example1 = ['HT-2026-001', '示例：办公设备采购合同', '采购', sampleCompany, '甲公司', '乙公司', 8000, 'CNY', '2026-01-05', '2026-01-10', '2027-01-04', '执行中', '采购部', '张三', '示例行，导入前请删除或改写'];
+    const example2 = ['HT-2026-002', '示例：年度审计服务合同', '服务', sampleCompany, '丙公司', '', 12000, 'CNY', '2026-02-01', '', '2027-01-31', '草稿', '财务审计部', '李四', ''];
     const ws = XLSX.utils.aoa_to_sheet([headers, example1, example2]);
     ws['!cols'] = headers.map(() => ({ wch: 16 }));
     const wb = XLSX.utils.book_new();
@@ -240,8 +246,9 @@ const ContractList: React.FC = () => {
       ['3. 日期写成 2026-01-05 或 2026/1/5 都行，Excel 日期格式也能识别。'],
       ['4. 金额只填数字，可带千分位和"元"（如 8,000 元），不要写"约8000"或负数。'],
       ['5. 合同类型与状态若填写，请与「系统设置」里的名称一致（例如 采购 / 执行中）。'],
-      ['6. 示例两行导入前请删除或改写，否则会作为真实合同导入。'],
-      ['7. 导入完成后界面会逐行列出失败原因，按提示改好再导一次即可。'],
+      ['6. 「所属公司」请填「系统设置 → 公司管理」里的公司名称，留空则该合同显示"未指定"。'],
+      ['7. 示例两行导入前请删除或改写，否则会作为真实合同导入。'],
+      ['8. 导入完成后界面会逐行列出失败原因，按提示改好再导一次即可。'],
     ];
     const wsNotes = XLSX.utils.aoa_to_sheet(notes);
     wsNotes['!cols'] = [{ wch: 80 }];
@@ -277,6 +284,13 @@ const ContractList: React.FC = () => {
       dataIndex: 'type',
       width: 80,
       render: (text: string) => <Tag>{text}</Tag>,
+    },
+    company: {
+      title: '主体公司',
+      dataIndex: 'company',
+      width: 140,
+      ellipsis: true,
+      render: (v: string) => v || <span style={{ color: '#bbb' }}>未指定</span>,
     },
     party_a: {
       title: '甲方',
@@ -435,6 +449,14 @@ const ContractList: React.FC = () => {
                 allowClear
                 style={{ width: 100 }}
                 options={CONTRACT_STATUSES.map(s => ({ label: s, value: s }))}
+              />
+              <Select
+                placeholder="主体公司"
+                value={filters.company}
+                onChange={v => setFilters({ ...filters, company: v })}
+                allowClear
+                style={{ width: 150 }}
+                options={companies.map(c => ({ label: c.name, value: c.name }))}
               />
               <Select
                 placeholder="部门"

@@ -3,6 +3,7 @@ export interface Contract {
   contract_no: string;
   title: string;
   type: string;
+  company?: string | null;
   party_a: string;
   party_b: string;
   amount: number;
@@ -102,6 +103,7 @@ export interface AppSettings {
   contract_types: string[];
   departments: string[];
   reminder_days: number[];
+  companies?: { name: string; abbr: string }[];
 }
 
 // 一份备份的概览：台账文件大小、是否含附件、附件数量与体积
@@ -132,6 +134,7 @@ declare global {
       updateUser: (id: number, data: Partial<{ username: string; display_name: string; role: string; department: string; password: string }>) => Promise<{ success: boolean }>;
       deleteUser: (id: number) => Promise<{ success: boolean }>;
       setApprovalStatus: (id: number, status: string) => Promise<{ success: boolean }>;
+      getNextContractNo: (company?: string) => Promise<{ contract_no: string; abbr: string; year: number; sequence: number }>;
       getReminders: (filters?: any) => Promise<Reminder[]>;
       getUpcomingReminders: (days: number) => Promise<Reminder[]>;
       updateReminderStatus: (id: number, status: string) => Promise<boolean>;

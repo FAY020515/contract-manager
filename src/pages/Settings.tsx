@@ -17,6 +17,9 @@ const Settings: React.FC = () => {
   const isAdmin = user?.role === 'admin';
   const [types, setTypes] = useState<string[]>([]);
   const [departments, setDepartments] = useState<string[]>([]);
+  const [companies, setCompanies] = useState<{ name: string; abbr: string }[]>([]);
+  const [newCompanyName, setNewCompanyName] = useState('');
+  const [newCompanyAbbr, setNewCompanyAbbr] = useState('');
   const [reminderDays, setReminderDays] = useState<number[]>([7, 15, 30]);
   const [newType, setNewType] = useState('');
   const [newDept, setNewDept] = useState('');
@@ -53,6 +56,7 @@ const Settings: React.FC = () => {
       const settings = await window.api.getAllSettings();
       setTypes(settings.contract_types || []);
       setDepartments(settings.departments || []);
+      setCompanies(Array.isArray(settings.companies) ? settings.companies : []);
       setReminderDays(settings.reminder_days || [7, 15, 30]);
       // 备份配置仅管理员可见
       if (isAdmin) {
@@ -115,6 +119,36 @@ const Settings: React.FC = () => {
     saveDepartments(updated);
     setNewDept('');
     message.success('添加成功');
+  };
+
+  const addCompany = async () => {
+    const name = newCompanyName.trim();
+    const abbr = newCompanyAbbr.trim().toUpperCase();
+    if (!name) { message.warning('请填写公司名称'); return; }
+    if (!/^[A-Z0-9]{2,6}$/.test(abbr)) { message.warning('缩写需为 2-6 位大写字母或数字'); return; }
+    if (companies.some(c => c.name === name)) { message.warning('该公司已存在'); return; }
+    if (companies.some(c => c.abbr === abbr)) { message.warning(`缩写「${abbr}」已被其他公司使用`); return; }
+    try {
+      const updated = [...companies, { name, abbr }];
+      await window.api.setSetting('companies', updated);
+      setCompanies(updated);
+      setNewCompanyName('');
+      setNewCompanyAbbr('');
+      message.success('添加成功');
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '添加失败');
+    }
+  };
+
+  const removeCompany = async (name: string) => {
+    try {
+      const updated = companies.filter(c => c.name !== name);
+      await window.api.setSetting('companies', updated);
+      setCompanies(updated);
+      message.success('已删除（历史合同上的公司名保持不变）');
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '删除失败');
+    }
   };
 
   const removeDept = (dept: string) => {
@@ -304,6 +338,49 @@ const Settings: React.FC = () => {
                 style={{ width: 160 }}
               />
               <Button icon={<PlusOutlined />} onClick={addDept} type="primary">
+                添加
+              </Button>
+            </Space>
+          </Card>
+        </Col>
+
+        <Col xs={24} lg={12}>
+          <Card title="公司管理" loading={loading}>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="维护集团下的主体公司及其编号缩写。新建合同时按缩写自动带出编号（如 CY-2026-0001）；缩写为 2-6 位大写字母或数字，不可重复。改名不影响已生成的编号，历史合同保留原公司名。"
+            />
+            <Space wrap style={{ marginBottom: 16 }}>
+              {companies.map(c => (
+                <Tag
+                  key={c.name}
+                  closable
+                  color="blue"
+                  onClose={(e) => { e.preventDefault(); removeCompany(c.name); }}
+                >
+                  {c.name}（{c.abbr}）
+                </Tag>
+              ))}
+              {companies.length === 0 && <span style={{ color: '#999' }}>尚未维护主体公司</span>}
+            </Space>
+            <Space>
+              <Input
+                value={newCompanyName}
+                onChange={e => setNewCompanyName(e.target.value)}
+                placeholder="公司名称"
+                style={{ width: 200 }}
+              />
+              <Input
+                value={newCompanyAbbr}
+                onChange={e => setNewCompanyAbbr(e.target.value.toUpperCase())}
+                placeholder="缩写，如 CY"
+                maxLength={6}
+                onPressEnter={addCompany}
+                style={{ width: 130 }}
+              />
+              <Button icon={<PlusOutlined />} onClick={addCompany} type="primary">
                 添加
               </Button>
             </Space>

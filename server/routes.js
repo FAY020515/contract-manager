@@ -218,6 +218,16 @@ function setupRoutes(app) {
     }
   });
 
+  // 推荐下一个合同编号：按所选主体公司的缩写 + 当年已用最大流水递进
+  app.get('/api/contracts/next-number', (req, res) => {
+    try {
+      const company = req.query.company ? String(req.query.company) : '';
+      res.json(db.nextContractNo(company));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get('/api/contracts/:id', (req, res) => {
     try {
       const contract = db.getContractById(Number(req.params.id));
@@ -279,6 +289,7 @@ function setupRoutes(app) {
             contract_no: row['合同编号'] || row.contract_no || null,
             title: row['合同名称'] || row.title,
             type: row['合同类型'] || row.type || '其他',
+            company: row['所属公司'] || row.company || null,
             party_a: row['甲方'] || row.party_a || null,
             party_b: row['乙方'] || row.party_b || null,
             amount,
@@ -685,7 +696,31 @@ function setupRoutes(app) {
 
   app.put('/api/settings/:key', (req, res) => {
     try {
-      db.setSetting(req.params.key, req.body.value);
+      const key = req.params.key;
+      const value = req.body.value;
+      if (key === 'companies') {
+        // 公司字典：名称唯一、缩写唯一且为 2-6 位大写字母/数字（缩写决定合同编号前缀）
+        if (!Array.isArray(value)) return res.status(400).json({ error: '公司列表格式不正确' });
+        const seenName = new Set();
+        const seenAbbr = new Set();
+        const normalized = [];
+        for (const item of value) {
+          const name = String((item && item.name) || '').trim();
+          const abbr = String((item && item.abbr) || '').trim().toUpperCase();
+          if (!name) return res.status(400).json({ error: '公司名称不能为空' });
+          if (!/^[A-Z0-9]{2,6}$/.test(abbr)) {
+            return res.status(400).json({ error: `「${name}」的缩写必须是 2-6 位大写字母或数字` });
+          }
+          if (seenName.has(name)) return res.status(400).json({ error: `公司「${name}」重复` });
+          if (seenAbbr.has(abbr)) return res.status(400).json({ error: `缩写「${abbr}」已被其他公司使用` });
+          seenName.add(name);
+          seenAbbr.add(abbr);
+          normalized.push({ name, abbr });
+        }
+        db.setSetting('companies', normalized);
+      } else {
+        db.setSetting(key, value);
+      }
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
