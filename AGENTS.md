@@ -4,7 +4,7 @@ This file provides guidance to Qoder (qoder.com) when working with code in this 
 
 ## 项目概述
 
-合同管理系统 v2.5.0 - 用于企业合同全生命周期管理的桌面/Web 应用，支持合同录入、收付款管理、到期提醒、统计分析、附件管理、Excel 导入导出、列配置（筛选/排序）、数据库自动备份与导入恢复等功能。
+合同管理系统 v2.6.0 - 用于企业合同全生命周期管理的桌面/Web 应用，支持合同录入、收付款管理、到期提醒、统计分析、附件管理、Excel 导入导出、列配置（筛选/排序）、数据库自动备份与导入恢复等功能。
 
 ## 技术栈
 
@@ -80,10 +80,13 @@ npm run package
 │   ├── contexts/AuthContext.tsx   # 认证状态管理
 │   ├── types/index.ts   # TypeScript 类型定义
 │   └── components/Layout/AppLayout.tsx  # 主布局（侧边栏 + 顶栏）
-├── scripts/             # 构建脚本
+├── scripts/             # 构建与运维脚本
 │   ├── package-server.js          # Web 部署打包脚本
 │   ├── generate-tray-icon.js      # 托盘图标生成
-│   └── setup-autostart.ps1        # 开机自启设置
+│   ├── setup-autostart.ps1        # 开机自启设置
+│   ├── smoke.js                   # 体检：临时环境跑 13 项核心检查，不碰真实数据
+│   └── reset-admin-password.js    # 忘记管理员密码时重置为 admin123（须先停服务）
+├── docs/                # 使用手册、运维手册、建设规划与排期
 ├── electron-builder.yml           # electron-builder 配置
 ├── electron-vite.config.ts        # electron-vite 构建配置
 ├── installer.nsh                  # NSIS 安装宏（开机自启）
