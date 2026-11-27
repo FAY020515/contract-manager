@@ -266,6 +266,8 @@ function setupRoutes(app) {
       }
 
       const results = [];
+      // 操作人以令牌里的登录者为准，不采信请求体里自报的名字
+      const operator = req.user.display_name || req.user.username;
       for (const file of (req.files || [])) {
         // multer 用 latin1 解码了文件名，需要转回 UTF-8
         const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
@@ -275,17 +277,9 @@ function setupRoutes(app) {
           originalName,
           file.mimetype,
           file.size,
-          req.body.uploader || null
+          operator
         );
         results.push({ id, filename: file.filename, original_name: originalName });
-      }
-
-      // 记录操作日志
-      if (results.length > 0) {
-        const names = results.map(r => r.original_name).join('、');
-        const logDb = require('./database');
-        // 直接插入日志
-        const { getLogsByContract } = logDb;
       }
 
       res.json({ files: results });

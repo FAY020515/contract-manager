@@ -207,6 +207,7 @@ COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END
 - 统计查询使用 SQLite 的 `strftime` 函数处理日期聚合
 - 中文文件名上传需 `Buffer.from(file.originalname, 'latin1').toString('utf8')` 修正编码
 - 提醒状态规则：合同更新 → 重置为 pending；合同终止/到期 → processed
+- 写 `contract_logs` 的格式：`action` 用短动词（现有为 `创建` / `更新` / `上传`），`detail` 写中文说明，`operator` 一律取令牌里的登录者（`req.user.display_name || req.user.username`），不要用请求体自报的名字。附件上传在 `createAttachment()` 内记日志；附件删除尚未记录。
 - 限定管理员的接口在 handler 首行写 `if (req.user.role !== 'admin') return res.status(403).json({ error: '权限不足' })`（鉴权中间件只保证已登录，不区分角色）；前端对应入口用 `useAuth()` 的 `user?.role === 'admin'` 控制显隐，避免普通用户触发 403
 - 破坏性操作（覆盖数据库文件、批量删除）必须先校验输入再动目标，并留下可回滚的副本；错误响应要区分"未做改动"和"已改动但失败"
 - 提交前至少跑 `npx tsc --noEmit -p tsconfig.json` 和 `npm run build`；涉及备份/导入这类改数据库的功能，另用一份独立的 `data/` 目录起服务实测，不要拿真实库试

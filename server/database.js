@@ -1014,6 +1014,10 @@ function createAttachment(contractId, filename, originalName, mimeType, size, up
     VALUES (?, ?, ?, ?, ?, ?)
   `, [contractId, filename, originalName, mimeType || 'application/octet-stream', size || 0, uploader || null]);
   const row = queryOne('SELECT last_insert_rowid() as id');
+
+  runSql('INSERT INTO contract_logs (contract_id, action, detail, operator) VALUES (?, ?, ?, ?)',
+    [contractId, '上传', `上传附件：${originalName}`, uploader || '系统']);
+
   return row ? row.id : 0;
 }
 
