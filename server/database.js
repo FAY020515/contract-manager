@@ -1015,19 +1015,26 @@ function createAttachment(contractId, filename, originalName, mimeType, size, up
   `, [contractId, filename, originalName, mimeType || 'application/octet-stream', size || 0, uploader || null]);
   const row = queryOne('SELECT last_insert_rowid() as id');
 
-  runSql('INSERT INTO contract_logs (contract_id, action, detail, operator) VALUES (?, ?, ?, ?)',
-    [contractId, '上传', `上传附件：${originalName}`, uploader || '系统']);
+  addContractLog(contractId, '上传', `上传附件：${originalName}`, uploader);
 
   return row ? row.id : 0;
 }
 
-function deleteAttachment(id) {
+// 记录一条合同操作日志；附件与凭证的增删替换也归到所属合同的时间线上
+function addContractLog(contractId, action, detail, operator) {
+  if (!contractId) return;
+  runSql('INSERT INTO contract_logs (contract_id, action, detail, operator) VALUES (?, ?, ?, ?)',
+    [contractId, action, detail, operator || '系统']);
+}
+
+function deleteAttachment(id, operator) {
   const att = queryOne('SELECT * FROM attachments WHERE id = ?', [id]);
   runSql('DELETE FROM attachments WHERE id = ?', [id]);
   // 删除磁盘上的文件
   if (att) {
     const filePath = path.join(getUploadsDir(), att.filename);
     try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (_) {}
+    addContractLog(att.contract_id, '删除', `删除附件：${att.original_name}`, operator);
   }
   return att;
 }
@@ -1229,7 +1236,7 @@ module.exports = {
   getLogsByContract,
   getDashboardStats, getStatsByType, getStatsByDepartment, getMonthlyTrend, getAmountDistribution,
   getSetting, setSetting, getAllSettings,
-  getAttachmentsByContract, getAttachmentById, createAttachment, deleteAttachment,
+  getAttachmentsByContract, getAttachmentById, createAttachment, deleteAttachment, addContractLog,
   deleteAttachmentsByContract, getAttachmentCountByContract,
   getPaymentsByContract, getPaymentById, createPayment, updatePayment, deletePayment, getPaymentSummary,
   authenticateUser, generateToken, verifyToken,

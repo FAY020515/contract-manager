@@ -106,12 +106,23 @@ const ContractDetail: React.FC = () => {
     }
   };
 
+  // 附件与凭证的增删会写入操作日志，做完动作后同步刷新，避免"删了却看不到痕迹"
+  const refreshLogs = async () => {
+    try {
+      const l = await window.api.getLogsByContract(Number(id));
+      setLogs(l);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const handleUpload = async (fileList: FileList) => {
     setUploading(true);
     try {
       await window.api.uploadAttachments(Number(id), fileList);
       message.success('上传成功');
       await loadAttachments();
+      await refreshLogs();
     } catch (e) {
       console.error(e);
       message.error('上传失败');
@@ -140,6 +151,7 @@ const ContractDetail: React.FC = () => {
       await window.api.deleteAttachment(attachmentId);
       message.success('附件已删除');
       await loadAttachments();
+      await refreshLogs();
     } catch (e) {
       console.error(e);
       message.error('删除失败');
@@ -195,6 +207,7 @@ const ContractDetail: React.FC = () => {
       // 上传附件（如果有）
       if (paymentAttachmentFile) {
         await window.api.uploadPaymentAttachment(paymentId, paymentAttachmentFile);
+        await refreshLogs();
       }
 
       setPaymentModalVisible(false);

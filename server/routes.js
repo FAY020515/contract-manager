@@ -333,7 +333,7 @@ function setupRoutes(app) {
   // 删除附件
   app.delete('/api/attachments/:id', (req, res) => {
     try {
-      db.deleteAttachment(Number(req.params.id));
+      db.deleteAttachment(Number(req.params.id), req.user.display_name || req.user.username);
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -401,11 +401,22 @@ function setupRoutes(app) {
       }
       // multer 用 latin1 解码了文件名，需要转回 UTF-8
       const originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+      const paymentId = Number(req.params.id);
+      const previous = db.getPaymentById(paymentId);
       // 更新付款记录的附件字段
-      db.updatePayment(Number(req.params.id), {
+      db.updatePayment(paymentId, {
         attachment: req.file.filename,
         attachment_name: originalName
       });
+      const operator = req.user.display_name || req.user.username;
+      if (previous) {
+        if (previous.attachment_name) {
+          db.addContractLog(previous.contract_id, '更换',
+            `更换收付款凭证：${previous.attachment_name} → ${originalName}`, operator);
+        } else {
+          db.addContractLog(previous.contract_id, '上传', `上传收付款凭证：${originalName}`, operator);
+        }
+      }
       res.json({
         filename: req.file.filename,
         original_name: originalName
@@ -431,6 +442,10 @@ function setupRoutes(app) {
         attachment: null,
         attachment_name: null
       });
+      if (payment && payment.attachment_name) {
+        db.addContractLog(payment.contract_id, '删除',
+          `删除收付款凭证：${payment.attachment_name}`, req.user.display_name || req.user.username);
+      }
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
