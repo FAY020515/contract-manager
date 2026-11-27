@@ -18,6 +18,9 @@ export interface Contract {
   created_at: string;
   updated_at: string;
   occurred_amount?: number;
+  approval_status?: string;
+  approval_by?: string | null;
+  approval_at?: string | null;
   last_operator?: string | null;
   last_updated_at?: string | null;
 }
@@ -128,6 +131,7 @@ declare global {
       createUser: (data: { username: string; password: string; display_name: string; role: string; department: string }) => Promise<{ id: number }>;
       updateUser: (id: number, data: Partial<{ username: string; display_name: string; role: string; department: string; password: string }>) => Promise<{ success: boolean }>;
       deleteUser: (id: number) => Promise<{ success: boolean }>;
+      setApprovalStatus: (id: number, status: string) => Promise<{ success: boolean }>;
       getReminders: (filters?: any) => Promise<Reminder[]>;
       getUpcomingReminders: (days: number) => Promise<Reminder[]>;
       updateReminderStatus: (id: number, status: string) => Promise<boolean>;
@@ -140,7 +144,7 @@ declare global {
       uploadPaymentAttachment: (id: number, file: File) => Promise<any>;
       deletePaymentAttachment: (id: number) => Promise<boolean>;
       getAttachments: (contractId: number) => Promise<any[]>;
-      uploadAttachments: (contractId: number, files: FileList | File[]) => Promise<any>;
+      uploadAttachments: (contractId: number, files: FileList | File[], category?: 'contract' | 'approval') => Promise<any>;
       deleteAttachment: (id: number) => Promise<boolean>;
       getAttachmentDownloadUrl: (id: number) => string;
       getAttachmentPreviewUrl: (id: number) => string;

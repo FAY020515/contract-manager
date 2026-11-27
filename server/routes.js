@@ -340,6 +340,20 @@ function setupRoutes(app) {
     }
   });
 
+  // 修改审批状态：线下纸质审批，系统只记录结果与经手人
+  app.put('/api/contracts/:id/approval', (req, res) => {
+    try {
+      const status = req.body && req.body.status;
+      const result = db.setApprovalStatus(Number(req.params.id), status, req.user.display_name || req.user.username);
+      if (!result.ok) {
+        return res.status(result.error === '合同不存在' ? 404 : 400).json({ error: result.error });
+      }
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.delete('/api/contracts/:id', (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: '权限不足：删除合同需要管理员权限' });
     try {
@@ -379,6 +393,8 @@ function setupRoutes(app) {
       const results = [];
       // 操作人以令牌里的登录者为准，不采信请求体里自报的名字
       const operator = req.user.display_name || req.user.username;
+      // category=approval 表示审批单扫描件，与合同附件分开展示
+      const category = req.body && req.body.category === 'approval' ? 'approval' : 'contract';
       for (const file of (req.files || [])) {
         // multer 用 latin1 解码了文件名，需要转回 UTF-8
         const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
@@ -388,7 +404,8 @@ function setupRoutes(app) {
           originalName,
           file.mimetype,
           file.size,
-          operator
+          operator,
+          category
         );
         results.push({ id, filename: file.filename, original_name: originalName });
       }

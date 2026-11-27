@@ -4,7 +4,7 @@ This file provides guidance to Qoder (qoder.com) when working with code in this 
 
 ## 项目概述
 
-合同管理系统 v2.6.0 - 用于企业合同全生命周期管理的桌面/Web 应用，支持合同录入、收付款管理、到期提醒、统计分析、附件管理、Excel 导入导出、列配置（筛选/排序）、数据库自动备份与导入恢复等功能。
+合同管理系统 v2.7.0 - 用于企业合同全生命周期管理的桌面/Web 应用，支持合同录入、收付款管理、到期提醒、统计分析、附件管理、Excel 导入导出、列配置（筛选/排序）、数据库自动备份与导入恢复等功能。
 
 ## 技术栈
 
@@ -152,7 +152,9 @@ COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END
 
 **用户管理** (admin): `GET/POST /api/users`, `PUT/DELETE /api/users/:id`
 
-**合同 CRUD**: `GET/POST /api/contracts`, `GET/PUT/DELETE /api/contracts/:id`, `POST /api/contracts/import`。其中 **DELETE 仅管理员**，且必须带 `?confirm_no=<该合同的编号>`，编号不符返回 400（前端用输入编号的确认弹窗，不是普通 Popconfirm）。普通用户可新增与修改合同，靠操作日志追溯。
+**合同 CRUD**: `GET/POST /api/contracts`, `GET/PUT/DELETE /api/contracts/:id`, `POST /api/contracts/import`, `PUT /api/contracts/:id/approval`。其中 **DELETE 仅管理员**，且必须带 `?confirm_no=<该合同的编号>`，编号不符返回 400（前端用输入编号的确认弹窗，不是普通 Popconfirm）。普通用户可新增与修改合同、可改审批状态，靠操作日志追溯。
+
+**审批留痕**：审批走线下纸质单据，系统只记录结果。`contracts.approval_status ∈ 未审批/审核中/已批准/已用印`（默认未审批），变更由 `setApprovalStatus()` 写 `approval_by/approval_at` 并记日志「审批状态：旧 → 新」。审批单扫描件与合同附件共用 `attachments` 表，用 `category` 区分（`contract` / `approval`），详情页分两栏展示；删除审批单同样仅管理员。
 
 **附件**: `POST/GET /api/contracts/:id/attachments`, `GET/DELETE /api/attachments/:id`, `GET /api/attachments/:id/download`, `GET /api/attachments/:id/preview`
 

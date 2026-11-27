@@ -56,6 +56,7 @@ const ContractList: React.FC = () => {
     { key: 'attachment_count', title: '附件', defaultVisible: true },
     { key: 'last_operator', title: '最后修改人', defaultVisible: false },
     { key: 'last_updated_at', title: '最后修改时间', defaultVisible: false },
+    { key: 'approval_status', title: '审批状态', defaultVisible: false },
   ];
   
   const [columnConfig, setColumnConfig] = useState<{ visible: string[]; order: string[] }>(() => {
@@ -144,6 +145,7 @@ const ContractList: React.FC = () => {
         '生效日期': c.start_date,
         '到期日期': c.end_date,
         '状态': c.status,
+        '审批状态': c.approval_status || '未审批',
         '部门': c.department,
         '负责人': c.person_in_charge,
       })));
@@ -354,6 +356,16 @@ const ContractList: React.FC = () => {
       dataIndex: 'last_updated_at',
       width: 150,
       render: (v: string) => v || '-',
+    },
+    approval_status: {
+      title: '审批状态',
+      dataIndex: 'approval_status',
+      width: 100,
+      render: (v: string) => (
+        <Tag color={v === '已用印' ? 'green' : v === '已批准' ? 'blue' : v === '审核中' ? 'orange' : 'default'}>
+          {v || '未审批'}
+        </Tag>
+      ),
     },
   };
 

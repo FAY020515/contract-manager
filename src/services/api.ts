@@ -99,6 +99,12 @@ export const api = {
       method: 'DELETE',
     }),
 
+  setApprovalStatus: (id: number, status: string) =>
+    request<{ success: boolean }>(`/contracts/${id}/approval`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    }),
+
   importContracts: (contracts: any[]) =>
     request<{ success: number; failed: number; errors: { row: number; error: string }[] }>('/contracts/import', {
       method: 'POST',
@@ -283,9 +289,10 @@ export const api = {
   getAttachments: (contractId: number) =>
     request<any[]>(`/contracts/${contractId}/attachments`),
 
-  uploadAttachments: (contractId: number, files: FileList | File[]) => {
+  uploadAttachments: (contractId: number, files: FileList | File[], category: 'contract' | 'approval' = 'contract') => {
     const formData = new FormData();
     Array.from(files).forEach(f => formData.append('files', f));
+    if (category === 'approval') formData.append('category', 'approval');
     const token = getToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;

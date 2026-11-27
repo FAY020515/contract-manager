@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Card, Descriptions, Tag, Button, Space, Timeline, Spin,
   Row, Col, Statistic, Popconfirm, message, Divider,
-  Upload, Table, Modal, Form, InputNumber, DatePicker, Input,
+  Upload, Table, Modal, Form, InputNumber, DatePicker, Input, List, Select,
 } from 'antd';
 import {
   ArrowLeftOutlined, EditOutlined, DeleteOutlined,
@@ -22,6 +22,7 @@ interface Attachment {
   file_size: number;
   mime_type: string;
   created_at: string;
+  category?: string;
 }
 
 const ContractDetail: React.FC = () => {
@@ -130,11 +131,11 @@ const ContractDetail: React.FC = () => {
     }
   };
 
-  const handleUpload = async (fileList: FileList) => {
+  const handleUpload = async (fileList: FileList, category: 'contract' | 'approval' = 'contract') => {
     setUploading(true);
     try {
-      await window.api.uploadAttachments(Number(id), fileList);
-      message.success('上传成功');
+      await window.api.uploadAttachments(Number(id), fileList, category);
+      message.success(category === 'approval' ? '审批单已上传' : '上传成功');
       await loadAttachments();
       await refreshLogs();
     } catch (e) {
@@ -169,6 +170,16 @@ const ContractDetail: React.FC = () => {
     } catch (e) {
       console.error(e);
       message.error('删除失败');
+    }
+  };
+
+  const handleChangeApproval = async (status: string) => {
+    try {
+      await window.api.setApprovalStatus(Number(id), status);
+      message.success('审批状态已更新');
+      await loadData();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '更新审批状态失败');
     }
   };
 
@@ -332,6 +343,10 @@ const ContractDetail: React.FC = () => {
       ),
     },
   ];
+
+  // 审批单（category=approval）与合同附件分开展示
+  const contractAttachments = attachments.filter(a => a.category !== 'approval');
+  const approvalDocs = attachments.filter(a => a.category === 'approval');
 
   const attachmentColumns = [
     {
@@ -575,6 +590,81 @@ const ContractDetail: React.FC = () => {
       </Modal>
 
       <Card
+        title="审批信息"
+        style={{ marginTop: 16 }}
+        extra={
+          <Space>
+            <span style={{ color: '#666' }}>审批状态：</span>
+            <Select
+              value={contract.approval_status || '未审批'}
+              style={{ width: 110 }}
+              onChange={handleChangeApproval}
+              options={[
+                { value: '未审批', label: '未审批' },
+                { value: '审核中', label: '审核中' },
+                { value: '已批准', label: '已批准' },
+                { value: '已用印', label: '已用印' },
+              ]}
+            />
+          </Space>
+        }
+      >
+        <div style={{ marginBottom: 12 }}>
+          <Tag color={contract.approval_status === '已用印' ? 'green' : contract.approval_status === '已批准' ? 'blue' : contract.approval_status === '审核中' ? 'orange' : 'default'}>
+            {contract.approval_status || '未审批'}
+          </Tag>
+          {contract.approval_by && (
+            <span style={{ color: '#666', marginLeft: 8 }}>
+              由 {contract.approval_by} 于 {contract.approval_at} 标记
+            </span>
+          )}
+          <span style={{ color: '#999', marginLeft: 8 }}>（审批走线下纸质单据，系统只记录结果）</span>
+        </div>
+        <Space wrap>
+          <Upload
+            multiple
+            showUploadList={false}
+            beforeUpload={(file, fileList) => {
+              if (file === fileList[0]) {
+                const dt = new DataTransfer();
+                fileList.forEach(f => dt.items.add(f));
+                handleUpload(dt.files, 'approval');
+              }
+              return false;
+            }}
+          >
+            <Button icon={<UploadOutlined />} loading={uploading}>上传审批单</Button>
+          </Upload>
+          <span style={{ color: '#999' }}>扫描件或照片，与合同附件分开显示</span>
+        </Space>
+        <List
+          style={{ marginTop: 12 }}
+          size="small"
+          dataSource={approvalDocs}
+          locale={{ emptyText: '暂无审批单' }}
+          renderItem={item => (
+            <List.Item
+              actions={[
+                <Button key="p" type="link" size="small" onClick={() => handlePreview(item.id)}>预览</Button>,
+                <Button key="d" type="link" size="small" onClick={() => handleDownload(item.id)}>下载</Button>,
+                isAdmin ? (
+                  <Popconfirm key="x" title="确认删除此审批单？" onConfirm={() => handleDeleteAttachment(item.id)} okText="确认" cancelText="取消">
+                    <Button type="link" size="small" danger>删除</Button>
+                  </Popconfirm>
+                ) : null,
+              ].filter(Boolean)}
+            >
+              <Space>
+                <PaperClipOutlined />
+                {item.original_name}
+                <span style={{ color: '#999' }}>{item.created_at}</span>
+              </Space>
+            </List.Item>
+          )}
+        />
+      </Card>
+
+      <Card
         title="合同附件"
         style={{ marginTop: 16 }}
         extra={
@@ -619,7 +709,7 @@ const ContractDetail: React.FC = () => {
         </Upload.Dragger>
 
         <Table
-          dataSource={attachments}
+          dataSource={contractAttachments}
           columns={attachmentColumns}
           rowKey="id"
           pagination={false}

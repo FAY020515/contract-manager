@@ -189,6 +189,9 @@ function createTables() {
       person_in_charge TEXT,
       description TEXT,
       file_path TEXT,
+      approval_status TEXT DEFAULT '未审批',
+      approval_by TEXT,
+      approval_at TEXT,
       created_at TEXT DEFAULT (datetime('now','localtime')),
       updated_at TEXT DEFAULT (datetime('now','localtime'))
     )
@@ -236,6 +239,7 @@ function createTables() {
       mime_type TEXT,
       size INTEGER DEFAULT 0,
       uploader TEXT,
+      category TEXT DEFAULT 'contract',
       created_at TEXT DEFAULT (datetime('now','localtime')),
       FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE CASCADE
     )
@@ -271,12 +275,22 @@ function createTables() {
     )
   `);
 
-  // 迁移：为旧表添加 attachment_name 列
-  try {
-    runSql('ALTER TABLE payments ADD COLUMN attachment_name TEXT');
-  } catch (e) {
-    // 列已存在，忽略错误
-  }
+  // 增量列迁移：老库补字段（SQLite 不支持 ADD COLUMN IF NOT EXISTS，先查再补）
+  const ensureColumn = (table, column, definition) => {
+    try {
+      const cols = queryAll(`PRAGMA table_info(${table})`);
+      if (!cols.some(c => c.name === column)) {
+        db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+      }
+    } catch (e) {
+      console.error(`  迁移列 ${table}.${column} 失败:`, e.message);
+    }
+  };
+  ensureColumn('payments', 'attachment_name', 'TEXT');
+  ensureColumn('contracts', 'approval_status', "TEXT DEFAULT '未审批'");
+  ensureColumn('contracts', 'approval_by', 'TEXT');
+  ensureColumn('contracts', 'approval_at', 'TEXT');
+  ensureColumn('attachments', 'category', "TEXT DEFAULT 'contract'");
 }
 
 function seedDefaults() {
@@ -436,6 +450,24 @@ function deleteContract(id) {
   runSql('DELETE FROM reminders WHERE contract_id = ?', [id]);
   runSql('DELETE FROM contract_logs WHERE contract_id = ?', [id]);
   runSql('DELETE FROM contracts WHERE id = ?', [id]);
+}
+
+// ========== 审批留痕（线下纸质审批，系统只记录结果） ==========
+
+const APPROVAL_STATUSES = ['未审批', '审核中', '已批准', '已用印'];
+
+function setApprovalStatus(id, status, operator) {
+  if (!APPROVAL_STATUSES.includes(status)) {
+    return { ok: false, error: `审批状态无效，应为：${APPROVAL_STATUSES.join(' / ')}` };
+  }
+  const before = getContractById(id);
+  if (!before) return { ok: false, error: '合同不存在' };
+  const from = before.approval_status || '未审批';
+  if (from === status) return { ok: true, unchanged: true };
+  runSql("UPDATE contracts SET approval_status = ?, approval_by = ?, approval_at = datetime('now','localtime') WHERE id = ?",
+    [status, operator || '系统', id]);
+  addContractLog(id, '审批', `审批状态：${from} → ${status}`, operator);
+  return { ok: true };
 }
 
 // ========== Reminders ==========
@@ -1015,14 +1047,15 @@ function getAttachmentById(id) {
   return queryOne('SELECT * FROM attachments WHERE id = ?', [id]);
 }
 
-function createAttachment(contractId, filename, originalName, mimeType, size, uploader) {
+function createAttachment(contractId, filename, originalName, mimeType, size, uploader, category) {
+  const kind = category === 'approval' ? 'approval' : 'contract';
   runSql(`
-    INSERT INTO attachments (contract_id, filename, original_name, mime_type, size, uploader)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `, [contractId, filename, originalName, mimeType || 'application/octet-stream', size || 0, uploader || null]);
+    INSERT INTO attachments (contract_id, filename, original_name, mime_type, size, uploader, category)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `, [contractId, filename, originalName, mimeType || 'application/octet-stream', size || 0, uploader || null, kind]);
   const row = queryOne('SELECT last_insert_rowid() as id');
 
-  addContractLog(contractId, '上传', `上传附件：${originalName}`, uploader);
+  addContractLog(contractId, '上传', kind === 'approval' ? `上传审批单：${originalName}` : `上传附件：${originalName}`, uploader);
 
   return row ? row.id : 0;
 }
@@ -1086,7 +1119,8 @@ function deleteAttachment(id, operator) {
   if (att) {
     const filePath = path.join(getUploadsDir(), att.filename);
     try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (_) {}
-    addContractLog(att.contract_id, '删除', `删除附件：${att.original_name}`, operator);
+    addContractLog(att.contract_id, '删除',
+      `${att.category === 'approval' ? '删除审批单' : '删除附件'}：${att.original_name}`, operator);
   }
   return att;
 }
@@ -1312,6 +1346,7 @@ function saveNow() {
 module.exports = {
   initDatabase, getDbPath, getUploadsDir, saveNow,
   getContracts, getContractById, createContract, updateContract, deleteContract,
+  setApprovalStatus, APPROVAL_STATUSES,
   getReminders, getUpcomingReminders, updateReminderStatus,
   getLogsByContract,
   getDashboardStats, getStatsByType, getStatsByDepartment, getMonthlyTrend, getAmountDistribution,
