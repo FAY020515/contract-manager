@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   Table, Button, Input, Select, Space, Tag, Card, Row, Col,
-  Modal, message, Popconfirm, Tooltip, DatePicker, Upload, Popover, Checkbox,
+  Modal, message, Tooltip, DatePicker, Upload, Popover, Checkbox,
 } from 'antd';
 import {
   PlusOutlined, SearchOutlined, DeleteOutlined, EditOutlined,
@@ -12,13 +12,18 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import type { Contract, ContractStatus } from '../types';
 import { CONTRACT_STATUSES, STATUS_COLORS } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 
 const { RangePicker } = DatePicker;
 
 const ContractList: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [loading, setLoading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Contract | null>(null);
+  const [deleteInput, setDeleteInput] = useState('');
   const [data, setData] = useState<Contract[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -100,10 +105,27 @@ const ContractList: React.FC = () => {
     });
   }, []);
 
-  const handleDelete = async (id: number) => {
-    await window.api.deleteContract(id);
-    message.success('删除成功');
-    loadData();
+  const openDelete = (record: Contract) => {
+    setDeleteTarget(record);
+    setDeleteInput('');
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const typed = deleteInput.trim();
+    if (typed !== deleteTarget.contract_no) {
+      message.error('输入的合同编号不一致，已取消删除');
+      return;
+    }
+    try {
+      await window.api.deleteContract(deleteTarget.id, typed);
+      message.success('删除成功');
+      setDeleteTarget(null);
+      setDeleteInput('');
+      loadData();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '删除失败');
+    }
   };
 
   const handleExport = async () => {
@@ -312,14 +334,11 @@ const ContractList: React.FC = () => {
               onClick={() => navigate(`/contracts/${record.id}/edit`)}
             />
           </Tooltip>
-          <Popconfirm
-            title="确认删除此合同？"
-            onConfirm={() => handleDelete(record.id)}
-            okText="确认"
-            cancelText="取消"
-          >
-            <Button type="link" size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
+          {isAdmin && (
+            <Tooltip title="删除合同（需输入合同编号确认）">
+              <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => openDelete(record)} />
+            </Tooltip>
+          )}
         </Space>
       ),
     },
@@ -579,6 +598,29 @@ const ContractList: React.FC = () => {
             )}
           </div>
         )}
+      </Modal>
+
+      <Modal
+        title="删除合同"
+        open={!!deleteTarget}
+        onCancel={() => { setDeleteTarget(null); setDeleteInput(''); }}
+        onOk={confirmDelete}
+        okText="确认删除"
+        okButtonProps={{ danger: true }}
+        cancelText="取消"
+        destroyOnClose
+      >
+        <p style={{ marginBottom: 8 }}>
+          将删除合同 <b>{deleteTarget?.contract_no} · {deleteTarget?.title}</b>，
+          并连带删除它的附件与全部操作日志，<b>不可恢复</b>（备份里的历史副本不受影响）。
+        </p>
+        <p style={{ marginBottom: 8, color: '#666' }}>请输入该合同的编号以确认：</p>
+        <Input
+          value={deleteInput}
+          onChange={e => setDeleteInput(e.target.value)}
+          placeholder={deleteTarget?.contract_no}
+          onPressEnter={confirmDelete}
+        />
       </Modal>
     </div>
   );

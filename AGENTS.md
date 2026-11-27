@@ -138,18 +138,18 @@ COALESCE(SUM(CASE WHEN p.status IN ('已付', '已收') THEN p.amount ELSE 0 END
 - 密码哈希：salt + SHA256
 - 默认管理员: `admin / admin123`（仅在 admin 不存在时创建；已存在只保证启用与管理员角色，**密码不再被启动重置**，仍用默认值时启动日志会给出警告）
 - 角色: `admin` (管理员) 和 `user` (普通用户)
-- 用户软删除：`active = 0`（非物理删除），最后一位 admin 不可删除
+- 用户软删除：`active = 0`（非物理删除）。**最后一位在职 admin 既不能删除、也不能被降级或停用**（删除由 `deleteUser` 拦截，降级/停用由 `PUT /api/users/:id` 用 `countActiveAdmins()` 拦截），否则系统会没人能管用户与备份。
 - 前端 token 存储在 `localStorage.auth_token`，挂载时通过 `/api/auth/me` 验证
 
 ### API 路由
 
-所有 API 以 `/api` 为前缀，除 `/api/auth/login`, `/api/health`, `/api/attachments/*` 外均需 Bearer token 鉴权。文件上传限制 50MB。
+所有 API 以 `/api` 为前缀，除 `/api/auth/login`、`/api/health`、以及 **`/api/attachments/*` 的只读方法（GET/HEAD）** 外均需 Bearer token 鉴权。文件上传限制 50MB。
 
 **认证**: `POST /api/auth/login`, `GET /api/auth/me`
 
 **用户管理** (admin): `GET/POST /api/users`, `PUT/DELETE /api/users/:id`
 
-**合同 CRUD**: `GET/POST /api/contracts`, `GET/PUT/DELETE /api/contracts/:id`, `POST /api/contracts/import`
+**合同 CRUD**: `GET/POST /api/contracts`, `GET/PUT/DELETE /api/contracts/:id`, `POST /api/contracts/import`。其中 **DELETE 仅管理员**，且必须带 `?confirm_no=<该合同的编号>`，编号不符返回 400（前端用输入编号的确认弹窗，不是普通 Popconfirm）。普通用户可新增与修改合同，靠操作日志追溯。
 
 **附件**: `POST/GET /api/contracts/:id/attachments`, `GET/DELETE /api/attachments/:id`, `GET /api/attachments/:id/download`, `GET /api/attachments/:id/preview`
 

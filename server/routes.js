@@ -126,14 +126,20 @@ function setupRoutes(app) {
         delete updates.department;
         delete updates.active;
       }
+      // 最后一位在职管理员不能被降级或停用，否则系统将无人可管用户与备份
+      const target = db.getUserById(targetId);
+      const willLoseAdmin = !!target && target.role === 'admin' &&
+        ((updates.role !== undefined && updates.role !== 'admin') ||
+         (updates.active !== undefined && !updates.active));
+      if (willLoseAdmin && db.countActiveAdmins() <= 1) {
+        return res.status(400).json({ error: '这是最后一位管理员，不能降级或停用' });
+      }
       db.updateUser(targetId, updates);
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
-  });
-
-  app.delete('/api/users/:id', (req, res) => {
+  });  app.delete('/api/users/:id', (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: '权限不足' });
     try {
       const result = db.deleteUser(Number(req.params.id));
@@ -242,8 +248,16 @@ function setupRoutes(app) {
   });
 
   app.delete('/api/contracts/:id', (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: '权限不足：删除合同需要管理员权限' });
     try {
       const id = Number(req.params.id);
+      const contract = db.getContractById(id);
+      if (!contract) return res.status(404).json({ error: '合同不存在' });
+      // 删除会连带删掉附件与全部日志，要求提交的编号与库中一致，挡住点错行
+      const confirmNo = String(req.query.confirm_no || '').trim();
+      if (confirmNo !== contract.contract_no) {
+        return res.status(400).json({ error: `删除已取消：请准确填写合同编号「${contract.contract_no}」` });
+      }
       // 先清理附件文件
       db.deleteAttachmentsByContract(id);
       db.deleteContract(id);
@@ -336,6 +350,7 @@ function setupRoutes(app) {
 
   // 删除附件
   app.delete('/api/attachments/:id', (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: '权限不足：删除附件需要管理员权限' });
     try {
       db.deleteAttachment(Number(req.params.id), req.user.display_name || req.user.username);
       res.json({ success: true });

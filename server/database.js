@@ -1179,6 +1179,11 @@ function updateUser(id, updates) {
   return true;
 }
 
+function countActiveAdmins() {
+  const row = queryOne("SELECT COUNT(*) as count FROM users WHERE role = 'admin' AND active = 1");
+  return row ? row.count : 0;
+}
+
 function deleteUser(id) {
   // 不允许删除最后一个管理员
   const user = queryOne('SELECT role FROM users WHERE id = ?', [id]);
@@ -1240,7 +1245,7 @@ module.exports = {
   deleteAttachmentsByContract, getAttachmentCountByContract,
   getPaymentsByContract, getPaymentById, createPayment, updatePayment, deletePayment, getPaymentSummary,
   authenticateUser, generateToken, verifyToken,
-  getUserById, getAllUsers, createUser, updateUser, deleteUser,
+  getUserById, getAllUsers, createUser, updateUser, deleteUser, countActiveAdmins,
   exportBackup,
   importBackup,
   getAutoBackupConfig,

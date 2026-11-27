@@ -119,7 +119,7 @@ declare global {
       getContractById: (id: number) => Promise<Contract | null>;
       createContract: (contract: Partial<Contract>) => Promise<number>;
       updateContract: (id: number, contract: Partial<Contract>) => Promise<boolean>;
-      deleteContract: (id: number) => Promise<boolean>;
+      deleteContract: (id: number, confirmNo: string) => Promise<boolean>;
       getReminders: (filters?: any) => Promise<Reminder[]>;
       getUpcomingReminders: (days: number) => Promise<Reminder[]>;
       updateReminderStatus: (id: number, status: string) => Promise<boolean>;

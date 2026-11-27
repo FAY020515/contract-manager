@@ -94,8 +94,8 @@ export const api = {
       body: JSON.stringify(contract),
     }),
 
-  deleteContract: (id: number) =>
-    request<{ success: boolean }>(`/contracts/${id}`, {
+  deleteContract: (id: number, confirmNo: string) =>
+    request<{ success: boolean }>(`/contracts/${id}?confirm_no=${encodeURIComponent(confirmNo)}`, {
       method: 'DELETE',
     }),
 

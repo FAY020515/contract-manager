@@ -13,6 +13,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 import type { Contract, ContractLog, ContractStatus, Payment, PaymentSummary } from '../types';
 import { STATUS_COLORS } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Attachment {
   id: number;
@@ -26,6 +27,10 @@ interface Attachment {
 const ContractDetail: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteInput, setDeleteInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [contract, setContract] = useState<Contract | null>(null);
   const [logs, setLogs] = useState<ContractLog[]>([]);
@@ -65,11 +70,20 @@ const ContractDetail: React.FC = () => {
     setLoading(false);
   };
 
-  const handleDelete = async () => {
+  const confirmDelete = async () => {
     if (!contract) return;
-    await window.api.deleteContract(contract.id);
-    message.success('删除成功');
-    navigate('/contracts');
+    const typed = deleteInput.trim();
+    if (typed !== contract.contract_no) {
+      message.error('输入的合同编号不一致，已取消删除');
+      return;
+    }
+    try {
+      await window.api.deleteContract(contract.id, typed);
+      message.success('删除成功');
+      navigate('/contracts');
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '删除失败');
+    }
   };
 
   const handleStatusChange = async (newStatus: ContractStatus) => {
@@ -362,16 +376,18 @@ const ContractDetail: React.FC = () => {
           >
             下载
           </Button>
-          <Popconfirm
-            title="确认删除此附件？"
-            onConfirm={() => handleDeleteAttachment(record.id)}
-            okText="确认"
-            cancelText="取消"
-          >
-            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-              删除
-            </Button>
-          </Popconfirm>
+          {isAdmin && (
+            <Popconfirm
+              title="确认删除此附件？"
+              onConfirm={() => handleDeleteAttachment(record.id)}
+              okText="确认"
+              cancelText="取消"
+            >
+              <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+                删除
+              </Button>
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
@@ -408,9 +424,11 @@ const ContractDetail: React.FC = () => {
             >
               编辑
             </Button>
-            <Popconfirm title="确认删除此合同？" onConfirm={handleDelete} okText="确认" cancelText="取消">
-              <Button danger icon={<DeleteOutlined />}>删除</Button>
-            </Popconfirm>
+            {isAdmin && (
+              <Button danger icon={<DeleteOutlined />} onClick={() => { setDeleteOpen(true); setDeleteInput(''); }}>
+                删除
+              </Button>
+            )}
           </Space>
         }
       >
@@ -626,6 +644,29 @@ const ContractDetail: React.FC = () => {
         />
         {logs.length === 0 && <div style={{ color: '#999', textAlign: 'center' }}>暂无操作记录</div>}
       </Card>
+
+      <Modal
+        title="删除合同"
+        open={deleteOpen}
+        onCancel={() => { setDeleteOpen(false); setDeleteInput(''); }}
+        onOk={confirmDelete}
+        okText="确认删除"
+        okButtonProps={{ danger: true }}
+        cancelText="取消"
+        destroyOnClose
+      >
+        <p style={{ marginBottom: 8 }}>
+          将删除合同 <b>{contract?.contract_no} · {contract?.title}</b>，
+          并连带删除它的附件与全部操作日志，<b>不可恢复</b>（备份里的历史副本不受影响）。
+        </p>
+        <p style={{ marginBottom: 8, color: '#666' }}>请输入该合同的编号以确认：</p>
+        <Input
+          value={deleteInput}
+          onChange={e => setDeleteInput(e.target.value)}
+          placeholder={contract?.contract_no}
+          onPressEnter={confirmDelete}
+        />
+      </Modal>
     </div>
   );
 };
