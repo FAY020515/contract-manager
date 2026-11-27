@@ -439,50 +439,6 @@ const Settings: React.FC = () => {
           </Card>
         </Col>
 
-        {isAdmin && (
-        <Col xs={24} lg={12}>
-          <Card title="数据管理" loading={loading}>
-            <Alert
-              message="定期备份数据，防止意外丢失。导出的 .db 文件只包含合同、收付款、提醒等台账，不含上传的合同附件文件本体；要连附件一起备份请开启下方「自动备份」（它会把台账和 uploads 文件夹一起存成一份备份），或者另外手动拷贝数据目录下的 uploads 文件夹。"
-              type="info"
-              showIcon
-              style={{ marginBottom: 16 }}
-            />
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Button
-                icon={<DownloadOutlined />}
-                onClick={handleExport}
-                block
-              >
-                导出数据库备份
-              </Button>
-              <Popconfirm
-                title="导入备份将覆盖当前数据，确定继续？"
-                onConfirm={handleImport}
-                okText="确认"
-                cancelText="取消"
-              >
-                <Button
-                  icon={<UploadOutlined />}
-                  danger
-                  block
-                >
-                  导入数据库备份
-                </Button>
-              </Popconfirm>
-            </Space>
-            {/* 隐藏文件选择器，桌面与浏览器模式共用 */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".db"
-              style={{ display: 'none' }}
-              onChange={handleFileSelected}
-            />
-          </Card>
-        </Col>
-        )}
-
         {/* 自动备份配置 */}
         {isAdmin && (
         <Col xs={24} lg={12}>
@@ -625,8 +581,34 @@ const Settings: React.FC = () => {
               type="info"
               showIcon
               style={{ marginBottom: 16 }}
-              message="这里可以把系统直接回到某一次备份的样子：台账和合同附件一起恢复，不需要自己去找文件夹。恢复前会自动留存当前数据，误操作还能退回来。"
+              message="恢复到某次备份时，台账与附件一起回退，恢复前会自动留存当前数据（误操作可以退回）。注意：「导出 / 导入」的单文件只含台账、不含附件；带附件的是「自动备份」与「完整备份到指定目录」。"
             />
+
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Button icon={<DownloadOutlined />} onClick={handleExport} block>
+                导出数据库备份（仅台账）
+              </Button>
+              <Popconfirm
+                title="导入备份将覆盖当前数据，确定继续？"
+                onConfirm={handleImport}
+                okText="确认"
+                cancelText="取消"
+              >
+                <Button icon={<UploadOutlined />} danger block>
+                  导入数据库备份（仅台账）
+                </Button>
+              </Popconfirm>
+            </Space>
+            {/* 隐藏文件选择器，桌面与浏览器模式共用 */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".db"
+              style={{ display: 'none' }}
+              onChange={handleFileSelected}
+            />
+
+            <Divider>恢复到某次备份</Divider>
 
             <Form layout="vertical">
               <Form.Item
